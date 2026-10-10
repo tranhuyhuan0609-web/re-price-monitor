@@ -1,6 +1,6 @@
 import pytest
 
-from src.infrastructure.config.settings import Settings
+
 
 
 @pytest.fixture
