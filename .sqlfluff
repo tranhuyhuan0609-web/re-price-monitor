@@ -1,2 +1,1 @@
 [sqlfluff]
-dialect = postgres
