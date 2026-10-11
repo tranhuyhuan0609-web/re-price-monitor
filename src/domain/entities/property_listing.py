@@ -95,13 +95,13 @@ class PriceInformation(DomainModel):
 
     basis: Literal["total", "per_m2", "per_month"] = "total"
 
-    amount: Decimal | None = Field(default=None, ge=0)
+    amount: Decimal | None = Field(default=None, gt=0)
     currency: str | None = Field(
         default=None,
         pattern=r"^[A-Z]{3}$",
     )
 
-    price_vnd: Decimal | None = Field(default=None, ge=0)
+    price_vnd: Decimal | None = Field(default=None, gt=0)
     fx_rate: Decimal | None = Field(default=None, gt=0)
     fx_rate_at: AwareDatetime | None = None
 
