@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime, timezone
-from src.infrastructure.crawler.scrapy.parsers.published_at_parser import (
+from src.infrastructure.crawler.spiders.parsers.published_at_parser import (
     parse_published_at,
 )
 from zoneinfo import ZoneInfo

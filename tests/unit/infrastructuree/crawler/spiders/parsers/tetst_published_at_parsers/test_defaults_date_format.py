@@ -1,4 +1,4 @@
-from src.infrastructure.crawler.scrapy.parsers.published_at_parser import (
+from src.infrastructure.crawler.spiders.parsers.published_at_parser import (
     DEFAULT_DATE_FORMATS, parse_published_at,
 )
 import pytest

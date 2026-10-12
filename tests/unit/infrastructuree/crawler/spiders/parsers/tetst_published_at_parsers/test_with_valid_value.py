@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from src.infrastructure.crawler.scrapy.parsers.published_at_parser import (
+from src.infrastructure.crawler.spiders.parsers.published_at_parser import (
     parse_published_at,
 )
 SOURCE_TZ = ZoneInfo("Asia/Ho_Chi_Minh")
