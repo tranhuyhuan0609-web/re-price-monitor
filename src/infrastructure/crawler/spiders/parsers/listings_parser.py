@@ -3,6 +3,7 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import ClassVar
+from src.application.exceptions.listing_parse_exception import ListingParseError
 from urllib.parse import urljoin, urlsplit
 from scrapy.http import TextResponse
 from scrapy.selector import Selector
@@ -11,8 +12,6 @@ _HOST_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _HOST_RE = re.compile(rf"^{_HOST_LABEL}(?:\.{_HOST_LABEL})*$")
 _VALUE_SELECTOR_RE = re.compile(r"::(?:text|attr\([^)]+\))\s*$")
 _ATTR_SELECTOR_RE = re.compile(r"::attr\([^)]+\)\s*$")
-class ListingParseError(ValueError):
-    """Raised when a listing cannot be parsed safely."""
 @dataclass(frozen=True, slots=True)
 class ParsedListing:
     source: str
@@ -70,9 +69,14 @@ class ListingParser:
             raise ValueError("source must be a non-empty string")
         if not isinstance(selectors, dict):
             raise TypeError("selectors must be a dict[str, str]")
-        if max_payload_chars is not None and max_payload_chars <= 0:
-            raise ValueError("max_payload_chars must be positive or None")
-
+        if not isinstance(max_payload_chars, (int, type(None))):
+            raise TypeError("max_payload_chars must be an int or None")
+        if isinstance(max_payload_chars, (int, type(None))) and not isinstance(max_payload_chars, bool):
+            if max_payload_chars is not None and max_payload_chars <= 0:
+               raise ValueError("max_payload_chars must be positive or None")
+            pass
+        else:
+            raise TypeError("max_payload_chars must be an int or None")
         missing = self.REQUIRED_SELECTORS - selectors.keys()
         if missing:
             raise ValueError(f"Missing required selectors: {sorted(missing)}")
