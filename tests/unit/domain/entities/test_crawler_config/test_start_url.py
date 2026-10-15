@@ -17,3 +17,12 @@ def test_with_none_start_urls_is_invalid(valid_config_data):
     valid_config_data["start_urls"] = []
     with pytest.raises(ValidationError):
         CrawlerConfig(**valid_config_data)
+def test_start_urls_exceed_max_pages_is_invalid(valid_config_data):
+    valid_config_data["start_urls"] = [
+        "https://example.com/page1",
+        "https://example.com/page2",
+        "https://example.com/page3",
+    ]
+    valid_config_data["pagination"]["max_pages"] = 2
+    with pytest.raises(ValidationError):
+        CrawlerConfig(**valid_config_data)

@@ -14,16 +14,15 @@ def valid_config_data():
             "example.com",
         ],
         "selectors": {
-            "title": "h1.title",
-            "content": "div.content",
-            "author": "span.author",
-            "category": "div.category",
-            "published_at": "time.published",
+            "item": ".listing",
+            "url": "a.detail-link::attr(href)",
+            "title": "a.detail-link::text",
+            
         },
         "pagination": {
             "enabled": True,
             "next_page": "a.next::attr(href)",
-            "max_pages": 10,
+            "max_pages": 3,
         },
         "crawler_settings": {
             "delay": 1.0,

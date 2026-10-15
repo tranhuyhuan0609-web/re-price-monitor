@@ -1,8 +1,7 @@
-
 from __future__ import annotations
-
+from src.domain.entities.base import NonBlank, StrictBaseModel
 import re
-from typing import Annotated
+from typing import Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -11,7 +10,6 @@ from pydantic import (
     ConfigDict,
     Field,
     HttpUrl,
-    StringConstraints,
     field_validator,
     model_validator,
 )
@@ -22,16 +20,6 @@ HOST_LABEL_RE = re.compile(
 )
 
 ALLOWED_PROXY_SCHEMES = frozenset({"http", "https", "socks5"})
-
-NonBlank = Annotated[
-    str,
-    StringConstraints(
-        strip_whitespace=True,
-        min_length=1,
-    ),
-]
-
-
 def normalize_host(host: str | None) -> str:
     """Normalize a hostname for domain comparison."""
     if not host:
@@ -45,14 +33,22 @@ class StrictBaseModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 class Selectors(StrictBaseModel):
-    """CSS or XPath selectors used to extract listing data."""
+    """CSS selectors consumed by ListingParser."""
 
-    title: NonBlank
-    content: NonBlank
+    item: NonBlank
+    url: NonBlank
 
-    author: NonBlank | None = None
-    category: NonBlank | None = None
-    published_at: NonBlank | None = None
+    source_listing_id: NonBlank | None = None
+    title: NonBlank | None = None
+    description: NonBlank | None = None
+    raw_price: NonBlank | None = None
+    raw_address: NonBlank | None = None
+    raw_area: NonBlank | None = None
+    contact_info: NonBlank | None = None
+
+    def to_parser_dict(self) -> dict[str, str]:
+        return self.model_dump(exclude_none=True)
+
 class Pagination(StrictBaseModel):
     """Pagination configuration for a website."""
 
@@ -234,6 +230,8 @@ class CrawlerConfig(StrictBaseModel):
     selectors: Selectors
     pagination: Pagination
     crawler_settings: CrawlerSettings
+    
+    parser_version: str = "1.0.0"
 
     proxy_settings: ProxySettings = Field(
         default_factory=ProxySettings,

@@ -20,8 +20,9 @@ def valid_config():
         start_urls=["https://example.com/buy"],
         allowed_domains=["example.com"],
         selectors={
-            "title": "h1.title",
-            "content": "div.content",
+            "item": ".listing",
+            "url": "a.detail-link::attr(href)",
+            "title": "a.detail-link::text",
         },
         pagination={
             "enabled": False,
