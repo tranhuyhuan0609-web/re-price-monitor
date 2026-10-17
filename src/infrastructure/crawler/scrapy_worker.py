@@ -25,7 +25,11 @@ ITEM_PIPELINES: dict[str, int] = {
     "RawEventKafkaPipeline": 300,
 }
 
-DEFAULT_USER_AGENT = "RealEstateCrawler/1.0"
+DEFAULT_BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/140.0.0.0 Safari/537.36"
+)
 DEFAULT_CLOSESPIDER_TIMEOUT = 1800
 
 
@@ -86,16 +90,29 @@ def _optional_positive_int(
     return value
 
 
+def _optional_bool(
+    payload: dict[str, Any],
+    key: str,
+    default: bool,
+) -> bool:
+    value = payload.get(key, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be a boolean")
+    return value
+
+
 def _build_scrapy_settings(
     config: CrawlerConfig,
     *,
     closespider_timeout: int,
+    publish_kafka: bool = True,
+    browser_headless: bool = True,
 ) -> dict[str, Any]:
     """Chuyển cấu hình domain thành Scrapy settings."""
     if config.proxy_settings.enabled:
         raise NotImplementedError("Proxy support is not implemented yet.")
 
-    if not ITEM_PIPELINES:
+    if publish_kafka and not ITEM_PIPELINES:
         raise NotImplementedError(
             "No item pipeline configured; refusing to discard scraped items."
         )
@@ -104,16 +121,39 @@ def _build_scrapy_settings(
 
     settings = {
         "ROBOTSTXT_OBEY": True,
-        "USER_AGENT": DEFAULT_USER_AGENT,
+        "USER_AGENT": DEFAULT_BROWSER_USER_AGENT,
         "DOWNLOAD_DELAY": crawler_settings.delay,
-        "RANDOMIZE_DOWNLOAD_DELAY": crawler_settings.randomize_delay,
+        "DOWNLOAD_DELAY_JITTER": (
+            0.5 if crawler_settings.randomize_delay else 0.0
+        ),
         "CONCURRENT_REQUESTS": crawler_settings.concurrent_requests,
         "DOWNLOAD_TIMEOUT": crawler_settings.download_timeout,
         "RETRY_ENABLED": crawler_settings.retry_enabled,
         "RETRY_TIMES": crawler_settings.max_retries,
         "AUTOTHROTTLE_ENABLED": True,
         "CLOSESPIDER_TIMEOUT": closespider_timeout,
-        "ITEM_PIPELINES": ITEM_PIPELINES,
+        "ITEM_PIPELINES": ITEM_PIPELINES if publish_kafka else {},
+        "DOWNLOAD_HANDLERS": {
+            "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+            "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+        },
+        "TWISTED_REACTOR": (
+            "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
+        ),
+        "PLAYWRIGHT_BROWSER_TYPE": "chromium",
+        "PLAYWRIGHT_LAUNCH_OPTIONS": {
+            "headless": browser_headless,
+        },
+        "PLAYWRIGHT_CONTEXTS": {
+            "default": {
+                "user_agent": DEFAULT_BROWSER_USER_AGENT,
+                "locale": "vi-VN",
+                "timezone_id": "Asia/Ho_Chi_Minh",
+                "extra_http_headers": {
+                    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+                },
+            },
+        },
         "TELNETCONSOLE_ENABLED": False,
         "LOG_LEVEL": "INFO",
     }
@@ -137,6 +177,9 @@ def _build_report(
         "status": "ok",
         "crawl_run_id": crawl_run_id,
         "items_scraped": int(stats.get("item_scraped_count", 0)),
+        "raw_events_built": int(
+            stats.get("listing/raw_events_built", 0)
+        ),
         "requests_total": int(stats.get("downloader/request_count", 0)),
         "request_failures": int(stats.get("request/failed", 0)),
         "http_responses_ignored": int(
@@ -157,6 +200,8 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
         "closespider_timeout",
         DEFAULT_CLOSESPIDER_TIMEOUT,
     )
+    publish_kafka = _optional_bool(payload, "publish_kafka", True)
+    browser_headless = _optional_bool(payload, "browser_headless", True)
     try:
         config_data = json.loads(config_json)
     except json.JSONDecodeError as exc:
@@ -174,6 +219,8 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
         _build_scrapy_settings(
             config,
             closespider_timeout=closespider_timeout,
+            publish_kafka=publish_kafka,
+            browser_headless=browser_headless,
         ),
         priority="project",
     )

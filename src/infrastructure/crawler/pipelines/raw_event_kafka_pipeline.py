@@ -42,12 +42,16 @@ class RawEventKafkaPipeline:
             )
         )
 
-    def process_item(self, item: Any, spider: Spider) -> Any:
+    def process_item(
+        self,
+        item: Any,
+        spider: Spider | None = None,
+    ) -> Any:
         if not isinstance(item, RawEvent):
             raise TypeError("RawEventKafkaPipeline accepts RawEvent only")
 
         self._producer.publish(item)
         return item
 
-    def close_spider(self, spider: Spider) -> None:
+    def close_spider(self, spider: Spider | None = None) -> None:
         self._producer.close()

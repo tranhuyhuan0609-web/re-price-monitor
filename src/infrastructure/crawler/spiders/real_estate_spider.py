@@ -73,6 +73,10 @@ class RealEstateSpider(scrapy.Spider):
                 callback=self.parse,
                 errback=self.handle_request_error,
                 dont_filter=True,
+                meta={
+                    "playwright": True,
+                    "playwright_include_page": False,
+                },
             )
     async def start(self):
         for request in self._initial_requests():
@@ -129,6 +133,7 @@ class RealEstateSpider(scrapy.Spider):
                 continue
 
             stats.inc_value("listing/events")
+            stats.inc_value("listing/raw_events_built")
             yield event
 
         next_request = self._next_page_request(response, parse_stats.items_found)
@@ -188,6 +193,10 @@ class RealEstateSpider(scrapy.Spider):
             url=url,
             callback=self.parse,
             errback=self.handle_request_error,
+            meta={
+                "playwright": True,
+                "playwright_include_page": False,
+            },
         )
 
     # ------------------------------------------------------------------ errors

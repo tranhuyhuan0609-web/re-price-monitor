@@ -49,6 +49,7 @@ pydantic==2.14.0
 pydantic-settings==2.15.0
 pydantic_core==2.50.0
 PyDispatcher==2.0.7
+playwright==1.55.0
 Pygments==2.21.0
 pymongo==4.18.3
 pyOpenSSL==26.4.0
@@ -63,6 +64,7 @@ regex==2026.9.29
 requests==2.34.2
 requests-file==3.0.1
 Scrapy==2.19.0
+scrapy-playwright==0.0.48
 service-identity==26.1.0
 sqlfluff==4.4.0
 tblib==3.2.2

@@ -13,6 +13,7 @@ _HOST_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 _HOST_RE = re.compile(rf"^{_HOST_LABEL}(?:\.{_HOST_LABEL})*$")
 _VALUE_SELECTOR_RE = re.compile(r"::(?:text|attr\([^)]+\))\s*$")
 _ATTR_SELECTOR_RE = re.compile(r"::attr\([^)]+\)\s*$")
+_ITEM_ATTR_SELECTOR_RE = re.compile(r"^::attr\(([^)]+)\)\s*$")
 @dataclass(frozen=True, slots=True)
 class ParsedListing:
     source: str
@@ -166,6 +167,11 @@ class ListingParser:
         return " ".join(value.split())
 
     def _first_value(self, scope: Selector, selector: str) -> str | None:
+        item_attribute = _ITEM_ATTR_SELECTOR_RE.fullmatch(selector)
+        if item_attribute:
+            value = scope.attrib.get(item_attribute.group(1))
+            return self._clean(value) if value else None
+
         for value in scope.css(selector).getall():
             cleaned = self._clean(value)
             if cleaned:

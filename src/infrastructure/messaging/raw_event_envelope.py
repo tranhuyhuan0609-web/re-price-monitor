@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Mapping
 
 from src.domain.entities.raw_event import RawEvent
 from src.application.parsers.create_url_hash import create_url_hash
@@ -60,3 +60,41 @@ def serialize_raw_event(event: RawEvent) -> bytes:
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
+
+
+def deserialize_raw_event_envelope(value: bytes | str) -> dict[str, Any]:
+    """Decode and validate the required fields of a raw event envelope."""
+    try:
+        decoded = json.loads(value.decode("utf-8") if isinstance(value, bytes) else value)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("raw event must be valid UTF-8 JSON") from exc
+
+    if not isinstance(decoded, Mapping):
+        raise ValueError("raw event envelope must be a JSON object")
+
+    required_fields = (
+        "event_type",
+        "schema_version",
+        "raw_event_id",
+        "crawl_run_id",
+        "source",
+        "listing_key",
+        "parser_version",
+        "crawled_at",
+        "payload",
+    )
+    missing = [field for field in required_fields if field not in decoded]
+    if missing:
+        raise ValueError(
+            f"raw event envelope is missing required fields: {', '.join(missing)}"
+        )
+    if decoded["event_type"] != RAW_EVENT_TYPE:
+        raise ValueError(f"unsupported event type: {decoded['event_type']!r}")
+    if decoded["schema_version"] != RAW_EVENT_SCHEMA_VERSION:
+        raise ValueError(
+            f"unsupported raw event schema version: {decoded['schema_version']!r}"
+        )
+    if not isinstance(decoded["payload"], Mapping):
+        raise ValueError("raw event payload must be a JSON object")
+
+    return dict(decoded)
