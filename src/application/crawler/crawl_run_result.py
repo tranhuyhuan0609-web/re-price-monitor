@@ -16,6 +16,9 @@ class CrawlRunResult:
     started_at: datetime
     finished_at: datetime
     error: str | None = None
+    items_scraped: int = 0
+    request_failures: int = 0
+    finish_reason: str | None = None
 
     def __post_init__(self) -> None:
         if not self.crawl_run_id.strip():
@@ -31,3 +34,6 @@ class CrawlRunResult:
             raise ValueError(
                 "only failed crawl may contain an error"
             )
+
+        if self.items_scraped < 0 or self.request_failures < 0:
+            raise ValueError("crawl metrics must be non-negative")

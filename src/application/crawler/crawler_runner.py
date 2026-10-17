@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from typing import Protocol
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -18,6 +19,16 @@ from src.domain.entities.crawler_config import CrawlerConfig
 
 
 logger = logging.getLogger(__name__)
+
+
+class CrawlRunRecorder(Protocol):
+    def record(
+        self,
+        *,
+        site_id: str,
+        result: CrawlRunResult,
+    ) -> None:
+        ...
 
 
 def _utc_now() -> datetime:
@@ -54,10 +65,17 @@ class CrawlerRunner:
         executor: CrawlerExecutor,
         clock: Callable[[], datetime] = _utc_now,
         run_id_factory: Callable[[], str] = _new_run_id,
+        recorder: CrawlRunRecorder | None = None,
     ) -> None:
         self._executor = executor
         self._clock = clock
         self._run_id_factory = run_id_factory
+        self._recorder = recorder
+
+    def _record(self, site_id: str, result: CrawlRunResult) -> CrawlRunResult:
+        if self._recorder is not None:
+            self._recorder.record(site_id=site_id, result=result)
+        return result
 
     def run(self, config: CrawlerConfig) -> CrawlRunResult:
         if not isinstance(config, CrawlerConfig):
@@ -108,13 +126,13 @@ class CrawlerRunner:
                 config.site_id,
             )
 
-            return CrawlRunResult(
+            return self._record(config.site_id, CrawlRunResult(
                 crawl_run_id=crawl_run_id,
                 status=CrawlStatus.FAILED,
                 started_at=started_at,
                 finished_at=finished_at,
                 error=f"{type(exc).__name__}: {exc}",
-            )
+            ))
 
         finished_at = _validate_utc_datetime(
             self._clock(),
@@ -132,9 +150,12 @@ class CrawlerRunner:
             (finished_at - started_at).total_seconds(),
         )
 
-        return CrawlRunResult(
+        return self._record(config.site_id, CrawlRunResult(
             crawl_run_id=crawl_run_id,
             status=status,
             started_at=started_at,
             finished_at=finished_at,
-        )
+            items_scraped=report.items_scraped,
+            request_failures=report.request_failures,
+            finish_reason=report.finish_reason,
+        ))
