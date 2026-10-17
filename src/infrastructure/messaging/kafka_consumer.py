@@ -41,12 +41,16 @@ class KafkaMessageConsumer:
 
         self._poll_timeout = poll_timeout
         self._handler = handler
+        self._closed = False
         self._consumer = consumer or Consumer(
             {
                 "bootstrap.servers": bootstrap_servers.strip(),
                 "group.id": group_id.strip(),
                 "enable.auto.commit": False,
+                "enable.auto.offset.store": False,
                 "auto.offset.reset": "earliest",
+                "session.timeout.ms": 10000,
+                "max.poll.interval.ms": 300000,
             }
         )
         self._consumer.subscribe([topic.strip() for topic in topics])
@@ -83,7 +87,12 @@ class KafkaMessageConsumer:
         return processed
 
     def close(self) -> None:
+        if self._closed:
+            return
         try:
+            self._consumer.unsubscribe()
             self._consumer.close()
         except KafkaException as exc:
             raise KafkaConsumerError("Kafka consumer close failed") from exc
+        finally:
+            self._closed = True

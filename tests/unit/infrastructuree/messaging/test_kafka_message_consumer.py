@@ -37,6 +37,12 @@ def test_consumer_commits_only_after_handler_succeeds():
         asynchronous=False,
     )
 
+    consumer.close()
+    kafka_consumer.unsubscribe.assert_called_once()
+    kafka_consumer.close.assert_called_once()
+    consumer.close()
+    assert kafka_consumer.close.call_count == 1
+
 
 def test_consumer_does_not_commit_when_handler_fails():
     kafka_consumer = Mock()
