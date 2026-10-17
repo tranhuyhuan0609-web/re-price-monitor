@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import traceback
+from pathlib import Path
 from typing import Any, TextIO
 
+from dotenv import load_dotenv
 from scrapy.crawler import CrawlerProcess
 from scrapy.settings import Settings
 from twisted.python.failure import Failure
@@ -17,11 +20,21 @@ from src.infrastructure.crawler.spiders.real_estate_spider import RealEstateSpid
 
 logger = logging.getLogger(__name__)
 
-# Đăng ký pipeline thật khi bước tích hợp pipeline được triển khai.
-ITEM_PIPELINES: dict[str, int] = {}
+ITEM_PIPELINES: dict[str, int] = {
+    "src.infrastructure.crawler.pipelines.raw_event_kafka_pipeline."
+    "RawEventKafkaPipeline": 300,
+}
 
 DEFAULT_USER_AGENT = "RealEstateCrawler/1.0"
 DEFAULT_CLOSESPIDER_TIMEOUT = 1800
+
+
+def _load_runtime_environment() -> None:
+    """Load the selected environment for a standalone worker process."""
+    project_root = Path(__file__).resolve().parents[3]
+    load_dotenv(project_root / ".env")
+    environment = os.environ.get("ENV", "dev").strip()
+    load_dotenv(project_root / f".env.{environment}")
 
 
 def _write_result(result: dict[str, Any], stream: TextIO) -> None:
@@ -89,7 +102,7 @@ def _build_scrapy_settings(
 
     crawler_settings = config.crawler_settings
 
-    return {
+    settings = {
         "ROBOTSTXT_OBEY": True,
         "USER_AGENT": DEFAULT_USER_AGENT,
         "DOWNLOAD_DELAY": crawler_settings.delay,
@@ -104,6 +117,15 @@ def _build_scrapy_settings(
         "TELNETCONSOLE_ENABLED": False,
         "LOG_LEVEL": "INFO",
     }
+
+    bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS")
+    raw_topic = os.environ.get("KAFKA_RAW_TOPIC")
+    if bootstrap_servers:
+        settings["KAFKA_BOOTSTRAP_SERVERS"] = bootstrap_servers
+    if raw_topic:
+        settings["KAFKA_RAW_TOPIC"] = raw_topic
+
+    return settings
 
 
 def _build_report(
@@ -126,6 +148,7 @@ def _build_report(
 
 def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     """Chạy một crawl trong một process riêng."""
+    _load_runtime_environment()
     crawl_run_id = _require_text(payload, "crawl_run_id")
     config_json = _require_text(payload, "config_json")
 
