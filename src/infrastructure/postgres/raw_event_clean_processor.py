@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
@@ -53,7 +54,7 @@ def parse_price_vnd(value: str | None) -> Decimal | None:
     if not value:
         raise ValueError("raw_price is required for a known price")
     normalized = value.lower()
-    if any(term in normalized for term in ("thỏa thuận", "thoả thuận", "liên hệ")):
+    if any(term in normalized for term in ("thỏa thuận", "thoả thuận", "liên hệ", "contact", "thương lượng")):
         return None
     amount = _parse_decimal(normalized)
     if "tỷ" in normalized or "ty" in normalized:
@@ -69,7 +70,7 @@ def parse_price(value: str | None) -> ParsedPrice:
     if not value:
         return ParsedPrice(None, None, "contact")
     normalized = value.lower().strip()
-    if any(term in normalized for term in ("thỏa thuận", "thoả thuận", "liên hệ")):
+    if any(term in normalized for term in ("thỏa thuận", "thoả thuận", "liên hệ", "contact", "thương lượng")):
         return ParsedPrice(None, None, "contact")
 
     is_usd = any(token in normalized for token in ("usd", "$", "đô la"))
@@ -116,8 +117,6 @@ class RawEventCleanProcessor:
         price_status = parsed_price.status
         amount = parsed_price.amount
         currency = parsed_price.currency
-        fx_rate = None
-        fx_rate_at = None
         price_vnd = None
         if price_status == "known" and currency == "VND":
             price_vnd = amount
@@ -126,7 +125,7 @@ class RawEventCleanProcessor:
                 raise ValueError(
                     f"exchange rate provider is required for {currency}"
                 )
-            fx_rate, fx_rate_at = self._exchange_rate_provider.get_rate(
+            fx_rate, _ = self._exchange_rate_provider.get_rate(
                 base_currency=currency,
                 quote_currency="VND",
                 at=crawled_at,
@@ -140,6 +139,12 @@ class RawEventCleanProcessor:
             if price_vnd is not None and area_m2
             else None
         )
+        description = payload.get("description")
+        
+    
+        raw_contact_info = payload.get("contact_info")
+        contact_info_json = json.dumps(raw_contact_info, ensure_ascii=False) if raw_contact_info is not None else None
+        
         quality_flags = list(payload.get("quality_flags") or [])
 
         with self._connection.transaction():
@@ -152,18 +157,21 @@ class RawEventCleanProcessor:
                 """,
                 (envelope["raw_event_id"], run_started_at),
             )
+            
             self._connection.execute(
                 """
                 INSERT INTO listing_observation (
                     raw_event_id, crawl_run_id, run_started_at, crawled_at,
                     listing_key, source, source_listing_id, url, url_hash,
-                    title, transaction_type, price_status, price_basis,
-                    currency, amount, price_vnd, fx_rate, fx_rate_at,
+                    title, transaction_type, description, contact_info, price_status, price_basis,
+                    currency, amount, price_vnd,
                     price_per_m2, area_m2,
                     address_raw, quality_flags, processing_version
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sale',
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s,
+                    %s, %s, %s
                 )
                 ON CONFLICT (run_started_at, raw_event_id) DO NOTHING
                 """,
@@ -178,13 +186,13 @@ class RawEventCleanProcessor:
                     url,
                     create_url_hash(url),
                     title,
+                    description,
+                    contact_info_json,  # Truyền chính xác chuỗi JSON vào đây
                     price_status,
                     parsed_price.basis,
                     currency,
                     amount,
                     price_vnd,
-                    fx_rate,
-                    fx_rate_at,
                     price_per_m2,
                     area_m2,
                     payload.get("raw_address"),
