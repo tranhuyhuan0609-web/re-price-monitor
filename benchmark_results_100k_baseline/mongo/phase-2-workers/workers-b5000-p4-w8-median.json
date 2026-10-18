@@ -1,0 +1,59 @@
+{
+  "batch_size": 5000,
+  "pool_size": 4,
+  "workers": 8,
+  "phase": "workers",
+  "case": "workers-b5000-p4-w8",
+  "repetitions": 3,
+  "median_rows_per_second": 113011.12,
+  "runs": [
+    {
+      "benchmark": "mongo",
+      "timestamp_utc": "2026-10-17T15:06:14.226737+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 5000,
+      "pool_size": 4,
+      "workers": 8,
+      "elapsed_seconds": 1.286301,
+      "rows_per_second": 77742.29,
+      "status": "passed",
+      "phase": "workers",
+      "case": "workers-b5000-p4-w8",
+      "repetition": 1
+    },
+    {
+      "benchmark": "mongo",
+      "timestamp_utc": "2026-10-17T15:06:15.265865+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 5000,
+      "pool_size": 4,
+      "workers": 8,
+      "elapsed_seconds": 0.884869,
+      "rows_per_second": 113011.12,
+      "status": "passed",
+      "phase": "workers",
+      "case": "workers-b5000-p4-w8",
+      "repetition": 2
+    },
+    {
+      "benchmark": "mongo",
+      "timestamp_utc": "2026-10-17T15:06:16.071444+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 5000,
+      "pool_size": 4,
+      "workers": 8,
+      "elapsed_seconds": 0.663757,
+      "rows_per_second": 150657.61,
+      "status": "passed",
+      "phase": "workers",
+      "case": "workers-b5000-p4-w8",
+      "repetition": 3
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "batch_size": 5000,
+  "pool_size": 6,
+  "workers": 2,
+  "phase": "pool",
+  "case": "pool-b5000-p6-w2",
+  "repetitions": 3,
+  "median_rows_per_second": 134776.61,
+  "runs": [
+    {
+      "benchmark": "mongo",
+      "timestamp_utc": "2026-10-17T15:06:26.677057+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 5000,
+      "pool_size": 6,
+      "workers": 2,
+      "elapsed_seconds": 0.690065,
+      "rows_per_second": 144913.97,
+      "status": "passed",
+      "phase": "pool",
+      "case": "pool-b5000-p6-w2",
+      "repetition": 1
+    },
+    {
+      "benchmark": "mongo",
+      "timestamp_utc": "2026-10-17T15:06:27.803691+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 5000,
+      "pool_size": 6,
+      "workers": 2,
+      "elapsed_seconds": 0.984257,
+      "rows_per_second": 101599.48,
+      "status": "passed",
+      "phase": "pool",
+      "case": "pool-b5000-p6-w2",
+      "repetition": 2
+    },
+    {
+      "benchmark": "mongo",
+      "timestamp_utc": "2026-10-17T15:06:28.678482+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 5000,
+      "pool_size": 6,
+      "workers": 2,
+      "elapsed_seconds": 0.741968,
+      "rows_per_second": 134776.61,
+      "status": "passed",
+      "phase": "pool",
+      "case": "pool-b5000-p6-w2",
+      "repetition": 3
+    }
+  ]
+}

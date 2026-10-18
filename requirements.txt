@@ -44,6 +44,7 @@ propcache==0.5.4
 Protego==0.7.0
 psycopg==3.3.6
 psycopg-binary==3.3.6
+psycopg-pool==3.3.0
 pycparser==3.11
 pydantic==2.14.0
 pydantic-settings==2.15.0

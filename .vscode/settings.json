@@ -4,10 +4,10 @@
             "ssh": "Disabled",
             "previewLimit": 50,
             "server": "localhost",
-            "port": 5432,
+            "port": 15432,
             "driver": "PostgreSQL",
-            "name": "bds-project",
-            "database": "realestate",
+            "name": "project-bds-hh",
+            "database": "realestate_prod",
             "username": "huyhuan"
         }
     ]

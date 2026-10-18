@@ -4,7 +4,7 @@ import re
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
-from urllib.parse import urlsplit
+from dataclasses import dataclass
 
 from psycopg import Connection
 
@@ -12,9 +12,20 @@ from src.application.parsers.create_url_hash import create_url_hash
 from src.infrastructure.messaging.raw_event_envelope import (
     deserialize_raw_event_envelope,
 )
+from src.infrastructure.postgres.exchange_rate_provider import (
+    ExchangeRateProvider,
+)
 
 PROCESSING_VERSION = 1
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedPrice:
+    amount: Decimal | None
+    currency: str | None
+    status: str
+    basis: str = "total"
 
 
 def _parse_decimal(value: str) -> Decimal:
@@ -23,6 +34,13 @@ def _parse_decimal(value: str) -> Decimal:
         raise ValueError(f"cannot parse numeric value: {value!r}")
     token = number.group().replace(",", ".")
     return Decimal(token)
+
+
+def _parse_usd_number(value: str) -> Decimal:
+    match = re.search(r"\d[\d,]*(?:\.\d+)?", value)
+    if match is None:
+        raise ValueError(f"cannot parse numeric value: {value!r}")
+    return Decimal(match.group().replace(",", ""))
 
 
 def parse_area_m2(value: str | None) -> Decimal | None:
@@ -47,6 +65,20 @@ def parse_price_vnd(value: str | None) -> Decimal | None:
     return amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
 
 
+def parse_price(value: str | None) -> ParsedPrice:
+    if not value:
+        return ParsedPrice(None, None, "contact")
+    normalized = value.lower().strip()
+    if any(term in normalized for term in ("thỏa thuận", "thoả thuận", "liên hệ")):
+        return ParsedPrice(None, None, "contact")
+
+    is_usd = any(token in normalized for token in ("usd", "$", "đô la"))
+    basis = "per_m2" if any(token in normalized for token in ("/m2", "/m²", "m2")) else "total"
+    if is_usd:
+        return ParsedPrice(_parse_usd_number(normalized), "USD", "known", basis)
+    return ParsedPrice(parse_price_vnd(value), "VND", "known", basis)
+
+
 def _timestamp(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return parsed.astimezone(timezone.utc)
@@ -55,8 +87,13 @@ def _timestamp(value: str) -> datetime:
 class RawEventCleanProcessor:
     """Convert one raw envelope into one idempotent Silver observation."""
 
-    def __init__(self, connection: Connection[Any]) -> None:
+    def __init__(
+        self,
+        connection: Connection[Any],
+        exchange_rate_provider: ExchangeRateProvider | None = None,
+    ) -> None:
         self._connection = connection
+        self._exchange_rate_provider = exchange_rate_provider
 
     def handle(self, message: Any) -> None:
         envelope = deserialize_raw_event_envelope(message.value())
@@ -66,15 +103,37 @@ class RawEventCleanProcessor:
         if not isinstance(url, str) or not url.strip():
             raise ValueError("raw event payload.url is required")
         if not isinstance(title, str) or not title.strip():
-            raise ValueError("raw event payload.title is required")
+            title = payload.get("source_listing_id") or url
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("raw event payload.title fallback is empty")
 
         crawled_at = _timestamp(envelope["crawled_at"])
         run_started_at = crawled_at
         listing_key = envelope["listing_key"]
         source = envelope["source"]
         source_listing_id = payload.get("source_listing_id")
-        price_vnd = parse_price_vnd(payload.get("raw_price"))
-        price_status = "known" if price_vnd is not None else "contact"
+        parsed_price = parse_price(payload.get("raw_price"))
+        price_status = parsed_price.status
+        amount = parsed_price.amount
+        currency = parsed_price.currency
+        fx_rate = None
+        fx_rate_at = None
+        price_vnd = None
+        if price_status == "known" and currency == "VND":
+            price_vnd = amount
+        elif price_status == "known":
+            if self._exchange_rate_provider is None:
+                raise ValueError(
+                    f"exchange rate provider is required for {currency}"
+                )
+            fx_rate, fx_rate_at = self._exchange_rate_provider.get_rate(
+                base_currency=currency,
+                quote_currency="VND",
+                at=crawled_at,
+            )
+            price_vnd = (amount * fx_rate).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP
+            )
         area_m2 = parse_area_m2(payload.get("raw_area"))
         price_per_m2 = (
             (price_vnd / area_m2).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
@@ -99,11 +158,12 @@ class RawEventCleanProcessor:
                     raw_event_id, crawl_run_id, run_started_at, crawled_at,
                     listing_key, source, source_listing_id, url, url_hash,
                     title, transaction_type, price_status, price_basis,
-                    currency, amount, price_vnd, price_per_m2, area_m2,
+                    currency, amount, price_vnd, fx_rate, fx_rate_at,
+                    price_per_m2, area_m2,
                     address_raw, quality_flags, processing_version
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sale',
-                    %s, 'total', %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 ON CONFLICT (run_started_at, raw_event_id) DO NOTHING
                 """,
@@ -119,9 +179,12 @@ class RawEventCleanProcessor:
                     create_url_hash(url),
                     title,
                     price_status,
-                    "VND" if price_vnd is not None else None,
+                    parsed_price.basis,
+                    currency,
+                    amount,
                     price_vnd,
-                    price_vnd,
+                    fx_rate,
+                    fx_rate_at,
                     price_per_m2,
                     area_m2,
                     payload.get("raw_address"),

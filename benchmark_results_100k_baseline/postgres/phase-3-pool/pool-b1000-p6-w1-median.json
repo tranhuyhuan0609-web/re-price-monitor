@@ -1,0 +1,59 @@
+{
+  "batch_size": 1000,
+  "pool_size": 6,
+  "workers": 1,
+  "phase": "pool",
+  "case": "pool-b1000-p6-w1",
+  "repetitions": 3,
+  "median_rows_per_second": 9665.6,
+  "runs": [
+    {
+      "benchmark": "postgres",
+      "timestamp_utc": "2026-10-17T15:04:41.926165+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 1000,
+      "pool_size": 6,
+      "workers": 1,
+      "elapsed_seconds": 10.055505,
+      "rows_per_second": 9944.8,
+      "status": "passed",
+      "phase": "pool",
+      "case": "pool-b1000-p6-w1",
+      "repetition": 1
+    },
+    {
+      "benchmark": "postgres",
+      "timestamp_utc": "2026-10-17T15:04:52.388021+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 1000,
+      "pool_size": 6,
+      "workers": 1,
+      "elapsed_seconds": 10.345972,
+      "rows_per_second": 9665.6,
+      "status": "passed",
+      "phase": "pool",
+      "case": "pool-b1000-p6-w1",
+      "repetition": 2
+    },
+    {
+      "benchmark": "postgres",
+      "timestamp_utc": "2026-10-17T15:05:02.888651+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 1000,
+      "pool_size": 6,
+      "workers": 1,
+      "elapsed_seconds": 10.378633,
+      "rows_per_second": 9635.18,
+      "status": "passed",
+      "phase": "pool",
+      "case": "pool-b1000-p6-w1",
+      "repetition": 3
+    }
+  ]
+}

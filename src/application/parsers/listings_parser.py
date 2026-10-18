@@ -171,8 +171,8 @@ class ListingParser:
         if item_attribute:
             value = scope.attrib.get(item_attribute.group(1))
             return self._clean(value) if value else None
-
-        for value in scope.css(selector).getall():
+        elements = scope.xpath(selector) if selector.startswith(('//', './/')) else scope.css(selector)
+        for value in elements.getall():
             cleaned = self._clean(value)
             if cleaned:
                 return cleaned

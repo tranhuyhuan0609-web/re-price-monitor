@@ -21,6 +21,8 @@ def run_raw_event_consumer(*, max_messages: int | None = None) -> int:
         group_id=settings.KAFKA_GROUP_RAW_WRITER,
         topics=[settings.KAFKA_RAW_TOPIC],
         handler=writer,
+        dlq_bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
+        dlq_topic=settings.KAFKA_DLQ_TOPIC,
     )
     try:
         return consumer.run(max_messages=max_messages)

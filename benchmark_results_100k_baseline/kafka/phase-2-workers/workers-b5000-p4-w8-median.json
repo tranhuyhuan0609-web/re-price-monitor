@@ -1,0 +1,59 @@
+{
+  "batch_size": 5000,
+  "pool_size": 4,
+  "workers": 8,
+  "phase": "workers",
+  "case": "workers-b5000-p4-w8",
+  "repetitions": 3,
+  "median_rows_per_second": 125777.81,
+  "runs": [
+    {
+      "benchmark": "kafka",
+      "timestamp_utc": "2026-10-17T15:07:24.604929+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 5000,
+      "pool_size": null,
+      "workers": 8,
+      "elapsed_seconds": 0.74791,
+      "rows_per_second": 133705.87,
+      "status": "passed",
+      "phase": "workers",
+      "case": "workers-b5000-p4-w8",
+      "repetition": 1
+    },
+    {
+      "benchmark": "kafka",
+      "timestamp_utc": "2026-10-17T15:07:26.064240+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 5000,
+      "pool_size": null,
+      "workers": 8,
+      "elapsed_seconds": 0.795053,
+      "rows_per_second": 125777.81,
+      "status": "passed",
+      "phase": "workers",
+      "case": "workers-b5000-p4-w8",
+      "repetition": 2
+    },
+    {
+      "benchmark": "kafka",
+      "timestamp_utc": "2026-10-17T15:07:27.509044+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 5000,
+      "pool_size": null,
+      "workers": 8,
+      "elapsed_seconds": 0.824368,
+      "rows_per_second": 121305.11,
+      "status": "passed",
+      "phase": "workers",
+      "case": "workers-b5000-p4-w8",
+      "repetition": 3
+    }
+  ]
+}

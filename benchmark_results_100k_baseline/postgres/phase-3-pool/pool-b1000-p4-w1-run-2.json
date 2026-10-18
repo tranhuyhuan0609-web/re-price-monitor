@@ -1,0 +1,16 @@
+{
+  "benchmark": "postgres",
+  "timestamp_utc": "2026-10-17T15:04:20.665187+00:00",
+  "rows_requested": 100000,
+  "rows_inserted": 100000,
+  "rows_persisted": 100000,
+  "batch_size": 1000,
+  "pool_size": 4,
+  "workers": 1,
+  "elapsed_seconds": 11.652134,
+  "rows_per_second": 8582.12,
+  "status": "passed",
+  "phase": "pool",
+  "case": "pool-b1000-p4-w1",
+  "repetition": 2
+}

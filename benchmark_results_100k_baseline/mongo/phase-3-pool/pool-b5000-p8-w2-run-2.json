@@ -1,0 +1,16 @@
+{
+  "benchmark": "mongo",
+  "timestamp_utc": "2026-10-17T15:06:30.305077+00:00",
+  "rows_requested": 100000,
+  "rows_inserted": 100000,
+  "rows_persisted": 100000,
+  "batch_size": 5000,
+  "pool_size": 8,
+  "workers": 2,
+  "elapsed_seconds": 0.706775,
+  "rows_per_second": 141487.66,
+  "status": "passed",
+  "phase": "pool",
+  "case": "pool-b5000-p8-w2",
+  "repetition": 2
+}

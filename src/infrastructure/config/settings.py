@@ -50,7 +50,19 @@ class Settings(BaseSettings):
     KAFKA_RAW_TOPIC: str = Field(min_length=1)
     KAFKA_DLQ_TOPIC: str = Field(min_length=1)
     KAFKA_GROUP_RAW_WRITER: str = Field(min_length=1)
+    KAFKA_GROUP_DLQ_WRITER: str = Field(default="prod-dlq-writer", min_length=1)
     KAFKA_GROUP_CLEAN_PROCESSOR: str = Field(min_length=1)
+
+    # Exchange rates
+    FX_RATE_URL: str | None = None
+    FX_RATE_SOURCE: str | None = None
+    FX_RATE_FORMAT: Literal["json", "vietcombank_html"] = "json"
+    FX_RATE_TIMEOUT_SECONDS: float = Field(default=10.0, gt=0, le=60)
+    FX_RATE_UPDATE_INTERVAL_SECONDS: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+    )
 
     # Application logging
     CRAWLER_LOG_LEVEL: Literal[
@@ -67,6 +79,11 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_configuration(self) -> "Settings":
         """Validate relationships between configuration values."""
+
+        if bool(self.FX_RATE_URL) != bool(self.FX_RATE_SOURCE):
+            raise ValueError(
+                "FX_RATE_URL and FX_RATE_SOURCE must be configured together."
+            )
 
         if (
             self.KAFKA_GROUP_RAW_WRITER

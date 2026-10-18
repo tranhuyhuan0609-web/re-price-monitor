@@ -53,6 +53,7 @@ def _classify_status(report: CrawlExecutionReport) -> CrawlStatus:
     if (
         report.finish_reason != "finished"
         or report.request_failures > 0
+        or report.items_scraped == 0
     ):
         return CrawlStatus.PARTIAL
 

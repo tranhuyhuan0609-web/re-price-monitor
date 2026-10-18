@@ -87,6 +87,28 @@ class RealEstateSpider(scrapy.Spider):
     def parse(self, response: Response):
         """Convert a listing page into RawEvents and follow the next page."""
         stats = self.crawler.stats
+        if response.status >= 400:
+            stats.inc_value("request/failed")
+            if response.status in {403, 429, 503}:
+                stats.inc_value("listing/blocked_response")
+            self.logger.warning(
+                "HTTP error site=%s status=%s url=%s",
+                self.config.site_id,
+                response.status,
+                response.url,
+            )
+            if response.status in {403, 429}:
+                self.logger.warning(
+                    "Stopping site=%s after HTTP %s; "
+                    "the site requires a slower or authorized crawl.",
+                    self.config.site_id,
+                    response.status,
+                )
+                self.crawler.engine.close_spider(
+                    self,
+                    reason=f"http_{response.status}",
+                )
+            return
 
         if not isinstance(response, TextResponse):
             stats.inc_value("listing/non_text_response")

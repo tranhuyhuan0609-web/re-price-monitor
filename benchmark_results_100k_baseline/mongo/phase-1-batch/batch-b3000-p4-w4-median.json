@@ -1,0 +1,59 @@
+{
+  "batch_size": 3000,
+  "pool_size": 4,
+  "workers": 4,
+  "phase": "batch",
+  "case": "batch-b3000-p4-w4",
+  "repetitions": 3,
+  "median_rows_per_second": 121795.35,
+  "runs": [
+    {
+      "benchmark": "mongo",
+      "timestamp_utc": "2026-10-17T15:05:51.961620+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 3000,
+      "pool_size": 4,
+      "workers": 4,
+      "elapsed_seconds": 0.864073,
+      "rows_per_second": 115731.03,
+      "status": "passed",
+      "phase": "batch",
+      "case": "batch-b3000-p4-w4",
+      "repetition": 1
+    },
+    {
+      "benchmark": "mongo",
+      "timestamp_utc": "2026-10-17T15:05:52.761713+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 3000,
+      "pool_size": 4,
+      "workers": 4,
+      "elapsed_seconds": 0.680887,
+      "rows_per_second": 146867.16,
+      "status": "passed",
+      "phase": "batch",
+      "case": "batch-b3000-p4-w4",
+      "repetition": 2
+    },
+    {
+      "benchmark": "mongo",
+      "timestamp_utc": "2026-10-17T15:05:53.733237+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 3000,
+      "pool_size": 4,
+      "workers": 4,
+      "elapsed_seconds": 0.821049,
+      "rows_per_second": 121795.35,
+      "status": "passed",
+      "phase": "batch",
+      "case": "batch-b3000-p4-w4",
+      "repetition": 3
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "benchmark": "kafka",
+  "timestamp_utc": "2026-10-17T15:07:06.660948+00:00",
+  "rows_requested": 100000,
+  "rows_inserted": 100000,
+  "rows_persisted": 100000,
+  "batch_size": 5000,
+  "pool_size": null,
+  "workers": 4,
+  "elapsed_seconds": 0.681431,
+  "rows_per_second": 146750.07,
+  "status": "passed",
+  "phase": "batch",
+  "case": "batch-b5000-p4-w4",
+  "repetition": 2
+}

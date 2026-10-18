@@ -222,6 +222,11 @@ class CrawlerConfig(StrictBaseModel):
     site_id: NonBlank
     name: NonBlank
     enabled: bool
+    schedule_interval_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description="Minimum interval between scheduled crawl runs.",
+    )
 
     base_url: HttpUrl
     start_urls: list[HttpUrl] = Field(min_length=1)

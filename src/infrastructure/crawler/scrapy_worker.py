@@ -124,13 +124,20 @@ def _build_scrapy_settings(
         "USER_AGENT": DEFAULT_BROWSER_USER_AGENT,
         "DOWNLOAD_DELAY": crawler_settings.delay,
         "DOWNLOAD_DELAY_JITTER": (
-            0.5 if crawler_settings.randomize_delay else 0.0
+            1.0 if crawler_settings.randomize_delay else 0.0
         ),
         "CONCURRENT_REQUESTS": crawler_settings.concurrent_requests,
         "DOWNLOAD_TIMEOUT": crawler_settings.download_timeout,
         "RETRY_ENABLED": crawler_settings.retry_enabled,
         "RETRY_TIMES": crawler_settings.max_retries,
+        "RETRY_HTTP_CODES": [408, 425, 429, 500, 502, 503, 504],
+        "HTTPERROR_ALLOW_ALL": True,
         "AUTOTHROTTLE_ENABLED": True,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": 0.5,
+        "AUTOTHROTTLE_START_DELAY": crawler_settings.delay,
+        "AUTOTHROTTLE_MAX_DELAY": max(crawler_settings.delay * 8, 30.0),
+        "CONCURRENT_REQUESTS_PER_DOMAIN": 1,
+        "COOKIES_ENABLED": True,
         "CLOSESPIDER_TIMEOUT": closespider_timeout,
         "ITEM_PIPELINES": ITEM_PIPELINES if publish_kafka else {},
         "DOWNLOAD_HANDLERS": {
@@ -181,7 +188,11 @@ def _build_report(
             stats.get("listing/raw_events_built", 0)
         ),
         "requests_total": int(stats.get("downloader/request_count", 0)),
-        "request_failures": int(stats.get("request/failed", 0)),
+        "request_failures": int(
+            stats.get("request/failed", 0)
+            + stats.get("httperror/response_ignored_count", 0)
+            + stats.get("listing/blocked_response", 0)
+        ),
         "http_responses_ignored": int(
             stats.get("httperror/response_ignored_count", 0)
         ),

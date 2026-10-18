@@ -143,13 +143,15 @@ def benchmark_mongo(
         collection.insert_many(chunk, ordered=False)
         return len(chunk)
 
-    started = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        inserted = sum(executor.map(insert_chunk, chunks))
-    elapsed = time.perf_counter() - started
-    persisted = collection.count_documents({})
-    collection.drop()
-    client.close()
+    try:
+        started = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            inserted = sum(executor.map(insert_chunk, chunks))
+        elapsed = time.perf_counter() - started
+        persisted = collection.count_documents({})
+    finally:
+        collection.drop()
+        client.close()
     return {
         "benchmark": "mongo",
         "timestamp_utc": now_iso(),
@@ -186,6 +188,13 @@ def benchmark_kafka(
         if "already exists" not in str(exc).lower():
             raise
 
+    def delete_topic() -> None:
+        delete_future = admin.delete_topics([topic], operation_timeout=30)[topic]
+        try:
+            delete_future.result(timeout=30)
+        except Exception:
+            pass
+
     def produce(start: int, stop: int) -> int:
         producer = Producer({
             "bootstrap.servers": bootstrap,
@@ -211,12 +220,16 @@ def benchmark_kafka(
         (rows * worker // workers, rows * (worker + 1) // workers)
         for worker in range(workers)
     ]
-    started = time.perf_counter()
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        delivered = sum(
-            executor.map(lambda pair: produce(*pair), boundaries)
-        )
-    elapsed = time.perf_counter() - started
+    try:
+        started = time.perf_counter()
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            delivered = sum(
+                executor.map(lambda pair: produce(*pair), boundaries)
+            )
+        elapsed = time.perf_counter() - started
+    except Exception:
+        delete_topic()
+        raise
 
     consumer = Consumer({
         "bootstrap.servers": bootstrap,
@@ -224,22 +237,20 @@ def benchmark_kafka(
         "auto.offset.reset": "earliest",
         "enable.auto.commit": False,
     })
-    consumer.subscribe([topic])
-    received = 0
-    deadline = time.monotonic() + 120
-    while received < rows and time.monotonic() < deadline:
-        message = consumer.poll(1)
-        if message is None:
-            continue
-        if message.error():
-            raise RuntimeError(str(message.error()))
-        received += 1
-    consumer.close()
-    delete_future = admin.delete_topics([topic], operation_timeout=30)[topic]
     try:
-        delete_future.result(timeout=30)
-    except Exception:
-        pass
+        consumer.subscribe([topic])
+        received = 0
+        deadline = time.monotonic() + 120
+        while received < rows and time.monotonic() < deadline:
+            message = consumer.poll(1)
+            if message is None:
+                continue
+            if message.error():
+                raise RuntimeError(str(message.error()))
+            received += 1
+    finally:
+        consumer.close()
+        delete_topic()
     return {
         "benchmark": "kafka",
         "timestamp_utc": now_iso(),

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock, Mock
 
@@ -6,7 +7,11 @@ import pytest
 from src.infrastructure.postgres.raw_event_clean_processor import (
     RawEventCleanProcessor,
     parse_area_m2,
+    parse_price,
     parse_price_vnd,
+)
+from src.infrastructure.postgres.exchange_rate_provider import (
+    FixedExchangeRateProvider,
 )
 
 
@@ -47,3 +52,35 @@ def test_parse_price_requires_value():
 
 def test_parse_negotiable_price_as_contact():
     assert parse_price_vnd("Giá thỏa thuận") is None
+
+
+def test_parse_usd_price_preserves_currency_and_amount():
+    parsed = parse_price("$250,000")
+    assert parsed.amount == Decimal("250000")
+    assert parsed.currency == "USD"
+    assert parsed.status == "known"
+
+
+def test_processor_converts_usd_using_rate_provider():
+    connection = MagicMock()
+    message = Mock()
+    message.value.return_value = (
+        b'{"event_type":"listing.raw","schema_version":1,'
+        b'"raw_event_id":"event-usd","crawl_run_id":"run-1",'
+        b'"source":"example","listing_key":"example:1",'
+        b'"parser_version":"1.0.0","crawled_at":"2026-01-01T00:00:00Z",'
+        b'"payload":{"url":"https://example.com/1","title":"House",'
+        b'"raw_price":"$250,000","raw_area":"100 m2","quality_flags":[]}}'
+    )
+    provider = FixedExchangeRateProvider(
+        Decimal("25000"),
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+    )
+
+    RawEventCleanProcessor(connection, provider).handle(message)
+
+    observation_call = connection.execute.call_args_list[1]
+    params = observation_call.args[1]
+    assert Decimal("250000") in params
+    assert Decimal("6250000000") in params
+    assert Decimal("25000") in params

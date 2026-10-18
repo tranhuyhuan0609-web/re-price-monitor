@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -65,6 +66,14 @@ class ScrapyCrawlerExecutor:
             "config_json": config.model_dump_json(),
             "closespider_timeout": self._closespider_timeout,
         }
+        project_root = self._worker_path.parents[3]
+        environment = os.environ.copy()
+        existing_pythonpath = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = os.pathsep.join(
+            path
+            for path in (str(project_root), existing_pythonpath)
+            if path
+        )
 
         try:
             completed = subprocess.run(
@@ -75,6 +84,8 @@ class ScrapyCrawlerExecutor:
                 encoding="utf-8",
                 errors="replace",
                 timeout=self._timeout_seconds,
+                cwd=project_root,
+                env=environment,
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:

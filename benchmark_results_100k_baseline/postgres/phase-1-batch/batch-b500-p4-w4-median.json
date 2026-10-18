@@ -1,0 +1,59 @@
+{
+  "batch_size": 500,
+  "pool_size": 4,
+  "workers": 4,
+  "phase": "batch",
+  "case": "batch-b500-p4-w4",
+  "repetitions": 3,
+  "median_rows_per_second": 8914.73,
+  "runs": [
+    {
+      "benchmark": "postgres",
+      "timestamp_utc": "2026-10-17T14:55:24.613234+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 500,
+      "pool_size": 4,
+      "workers": 4,
+      "elapsed_seconds": 11.217396,
+      "rows_per_second": 8914.73,
+      "status": "passed",
+      "phase": "batch",
+      "case": "batch-b500-p4-w4",
+      "repetition": 1
+    },
+    {
+      "benchmark": "postgres",
+      "timestamp_utc": "2026-10-17T14:55:36.003613+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 500,
+      "pool_size": 4,
+      "workers": 4,
+      "elapsed_seconds": 11.302576,
+      "rows_per_second": 8847.54,
+      "status": "passed",
+      "phase": "batch",
+      "case": "batch-b500-p4-w4",
+      "repetition": 2
+    },
+    {
+      "benchmark": "postgres",
+      "timestamp_utc": "2026-10-17T14:55:47.254970+00:00",
+      "rows_requested": 100000,
+      "rows_inserted": 100000,
+      "rows_persisted": 100000,
+      "batch_size": 500,
+      "pool_size": 4,
+      "workers": 4,
+      "elapsed_seconds": 11.145126,
+      "rows_per_second": 8972.53,
+      "status": "passed",
+      "phase": "batch",
+      "case": "batch-b500-p4-w4",
+      "repetition": 3
+    }
+  ]
+}
