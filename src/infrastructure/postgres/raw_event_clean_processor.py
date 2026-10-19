@@ -99,20 +99,20 @@ class RawEventCleanProcessor:
     def handle(self, message: Any) -> None:
         envelope = deserialize_raw_event_envelope(message.value())
         payload = envelope["payload"]
+
         url = payload.get("url")
         title = payload.get("title")
+
         if not isinstance(url, str) or not url.strip():
             raise ValueError("raw event payload.url is required")
+
         if not isinstance(title, str) or not title.strip():
-            title = payload.get("source_listing_id") or url
-        if not isinstance(title, str) or not title.strip():
-            raise ValueError("raw event payload.title fallback is empty")
+            title = url
 
         crawled_at = _timestamp(envelope["crawled_at"])
         run_started_at = crawled_at
         listing_key = envelope["listing_key"]
         source = envelope["source"]
-        source_listing_id = payload.get("source_listing_id")
         parsed_price = parse_price(payload.get("raw_price"))
         price_status = parsed_price.status
         amount = parsed_price.amount
@@ -162,13 +162,13 @@ class RawEventCleanProcessor:
                 """
                 INSERT INTO listing_observation (
                     raw_event_id, crawl_run_id, run_started_at, crawled_at,
-                    listing_key, source, source_listing_id, url, url_hash,
+                    listing_key, source, url, url_hash,
                     title, transaction_type, description, contact_info, price_status, price_basis,
                     currency, amount, price_vnd,
                     price_per_m2, area_m2,
                     address_raw, quality_flags, processing_version
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sale',
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sale',
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s,
                     %s, %s, %s
@@ -182,12 +182,11 @@ class RawEventCleanProcessor:
                     crawled_at,
                     listing_key,
                     source,
-                    source_listing_id,
                     url,
                     create_url_hash(url),
                     title,
                     description,
-                    contact_info_json,  # Truyền chính xác chuỗi JSON vào đây
+                    contact_info_json, 
                     price_status,
                     parsed_price.basis,
                     currency,

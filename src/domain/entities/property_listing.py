@@ -39,7 +39,6 @@ class DomainModel(BaseModel):
 
 class ListingIdentity(DomainModel):
     source: str = Field(min_length=1)
-    source_listing_id: str | None = None
     url: HttpUrl
     url_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
@@ -48,48 +47,18 @@ class ListingIdentity(DomainModel):
     def normalize_source(cls, value: str) -> str:
         return value.lower()
 
-    @field_validator("source_listing_id")
-    @classmethod
-    def normalize_source_listing_id(
-        cls,
-        value: str | None,
-    ) -> str | None:
-        return value or None
-
     @computed_field
     @property
     def listing_key(self) -> str:
-        if self.source_listing_id:
-            return f"{self.source}:{self.source_listing_id}"
-
         return f"{self.source}:url:{self.url_hash}"
 
 class ListingInformation(DomainModel):
     title: str = Field(min_length=1)
     transaction_type: Literal["sale", "rent"]
-    published_at: AwareDatetime | None = None
-
 class LocationInformation(DomainModel):
     address: str | None = None
-    district: str | None = None
-    city: str | None = None
-
 class PropertyDetails(DomainModel):
-    property_type: Literal[
-        "apartment",
-        "house",
-        "townhouse",
-        "villa",
-        "land",
-        "commercial",
-        "other",
-    ] | None = None
-
     area_m2: Decimal | None = Field(default=None, gt=0)
-    bedrooms: int | None = Field(default=None, ge=0, le=50)
-    bathrooms: int | None = Field(default=None, ge=0, le=50)
-    year_built: int | None = Field(default=None, ge=1800, le=2100)
-
 class PriceInformation(DomainModel):
     status: Literal["known", "contact", "negotiable"] = "known"
 
@@ -102,17 +71,12 @@ class PriceInformation(DomainModel):
     )
 
     price_vnd: Decimal | None = Field(default=None, gt=0)
-    fx_rate: Decimal | None = Field(default=None, gt=0)
-    fx_rate_at: AwareDatetime | None = None
-
     @model_validator(mode="after")
     def validate_price(self):
         monetary_values = (
             self.amount,
             self.currency,
             self.price_vnd,
-            self.fx_rate,
-            self.fx_rate_at,
         )
 
         if self.status != "known":
@@ -145,25 +109,7 @@ class PriceInformation(DomainModel):
             self.price_vnd = self.amount
             return self
 
-        if (
-            self.price_vnd is None
-            or self.fx_rate is None
-            or self.fx_rate_at is None
-        ):
-            raise ValueError(
-                "Foreign-currency prices require price_vnd, "
-                "fx_rate, and fx_rate_at."
-            )
-
-        expected_price_vnd = self.amount * self.fx_rate
-
-        if abs(self.price_vnd - expected_price_vnd) > Decimal("1"):
-            raise ValueError(
-                "price_vnd differs from amount * fx_rate "
-                "by more than 1 VND."
-            )
-
-        return self
+        
 
 
 class ListingObservation(DomainModel):

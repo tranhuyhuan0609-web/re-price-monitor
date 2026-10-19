@@ -23,7 +23,6 @@ def build_raw_event_envelope(event: RawEvent) -> dict[str, Any]:
 
     payload = {
         "url": event.url,
-        "source_listing_id": event.source_listing_id,
         "title": event.title,
         "description": event.description,
         "raw_price": event.raw_price,
@@ -42,9 +41,7 @@ def build_raw_event_envelope(event: RawEvent) -> dict[str, Any]:
         "crawl_run_id": event.crawl_run_id,
         "source": event.source,
         "listing_key": (
-            f"{event.source}:{event.source_listing_id}"
-            if event.source_listing_id
-            else f"{event.source}:url:{create_url_hash(event.url)}"
+             f"{event.source}:url:{create_url_hash(event.url)}"
         ),
         "parser_version": event.parser_version,
         "crawled_at": _isoformat(event.crawled_at),

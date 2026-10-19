@@ -216,9 +216,6 @@ class ListingLike(Protocol):
     def url(self) -> str: ...
 
     @property
-    def source_listing_id(self) -> str | None: ...
-
-    @property
     def title(self) -> str | None: ...
 
     @property
@@ -247,7 +244,6 @@ class ListingLike(Protocol):
 
 
 _TEXT_FIELDS = (
-    "source_listing_id",
     "title",
     "description",
     "raw_price",
@@ -274,7 +270,6 @@ class RawEvent:
     # Required field: no default and placed before optional fields.
     parser_version: str
 
-    source_listing_id: str | None = None
     title: str | None = None
     description: str | None = None
     raw_price: str | None = None
@@ -378,7 +373,6 @@ class RawEventBuilder:
             crawl_run_id=run_id,
             crawled_at=event_time,
             parser_version=parser_version,
-            source_listing_id=listing.source_listing_id,
             title=listing.title,
             description=listing.description,
             raw_price=listing.raw_price,

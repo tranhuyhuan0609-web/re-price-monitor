@@ -19,7 +19,6 @@ class ParsedListing:
     source: str
     url: str
     url_hash: str 
-    source_listing_id: str | None = None
     title: str | None = None
     description: str | None = None
     raw_price: str | None = None
@@ -31,9 +30,6 @@ class ParsedListing:
     quality_flags: tuple[str, ...] = ()
     @property
     def listing_key(self) -> str:
-        if self.source_listing_id:
-            return f"{self.source}:{self.source_listing_id}"
-
         return f"{self.source}:url:{self.url_hash}"
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +42,6 @@ class ParserStats:
 
 class ListingParser:
     OPTIONAL_FIELDS: ClassVar[tuple[str, ...]] = (
-        "source_listing_id",
         "title",
         "description",
         "raw_price",
@@ -55,7 +50,6 @@ class ListingParser:
         "contact_info",
     )
     FLAG_FIELDS: ClassVar[tuple[str, ...]] = (
-        "source_listing_id",
         "title",
         "raw_price",
         "raw_area",
