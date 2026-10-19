@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -17,6 +16,9 @@ from twisted.python.failure import Failure
 from src.domain.entities.crawler_config import CrawlerConfig
 from src.domain.entities.raw_event import RawEventBuilder
 from src.infrastructure.crawler.spiders.real_estate_spider import RealEstateSpider
+from src.infrastructure.database.postgres_listing_detail_cache import (
+    PostgresListingDetailCache,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ DEFAULT_BROWSER_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/140.0.0.0 Safari/537.36"
 )
-DEFAULT_CLOSESPIDER_TIMEOUT = 1800
+DEFAULT_CLOSESPIDER_TIMEOUT = 7200
 
 
 def _load_runtime_environment() -> None:
@@ -42,7 +44,7 @@ def _load_runtime_environment() -> None:
 
 
 def _write_result(result: dict[str, Any], stream: TextIO) -> None:
-    """Ghi đúng một dòng JSON để executor parse."""
+    """Write exactly one JSON line for the executor to parse."""
     stream.write(
         json.dumps(result, ensure_ascii=True, separators=(",", ":")) + "\n"
     )
@@ -50,9 +52,8 @@ def _write_result(result: dict[str, Any], stream: TextIO) -> None:
 
 
 def _read_payload() -> dict[str, Any]:
-    """Đọc một JSON object từ stdin."""
+    """Read one JSON object from stdin."""
     line = sys.stdin.readline()
-
     if not line.strip():
         raise ValueError("Missing worker payload on stdin.")
 
@@ -63,16 +64,13 @@ def _read_payload() -> dict[str, Any]:
 
     if not isinstance(payload, dict):
         raise ValueError("Worker payload must be a JSON object.")
-
     return payload
 
 
 def _require_text(payload: dict[str, Any], key: str) -> str:
     value = payload.get(key)
-
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{key} must be a non-empty string.")
-
     return value.strip()
 
 
@@ -82,11 +80,9 @@ def _optional_positive_int(
     default: int,
 ) -> int:
     value = payload.get(key, default)
-
-    # bool là subclass của int trong Python nên phải loại riêng.
+    # bool is a subclass of int in Python, so reject it explicitly.
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         raise ValueError(f"{key} must be a positive integer.")
-
     return value
 
 
@@ -108,7 +104,12 @@ def _build_scrapy_settings(
     publish_kafka: bool = True,
     browser_headless: bool = True,
 ) -> dict[str, Any]:
-    """Chuyển cấu hình domain thành Scrapy settings."""
+    """Map domain crawler configuration to Scrapy runtime settings.
+
+    Concurrency is bounded per domain to avoid flooding a source website,
+    while allowing more than one request at a time. AutoThrottle adapts to
+    response latency and errors.
+    """
     if config.proxy_settings.enabled:
         raise NotImplementedError("Proxy support is not implemented yet.")
 
@@ -119,24 +120,41 @@ def _build_scrapy_settings(
 
     crawler_settings = config.crawler_settings
 
-    settings = {
+    # Use a moderate performance profile and keep hard safety caps. The DB
+    # setting still controls concurrency, but a typo cannot create an
+    # unbounded burst toward a source website.
+    requested_concurrency = max(1, int(crawler_settings.concurrent_requests))
+    global_concurrency = min(requested_concurrency, 8)
+    per_domain_concurrency = min(global_concurrency, 5)
+    target_concurrency = min(float(per_domain_concurrency), 4.0)
+    delay = max(0.0, float(crawler_settings.delay))
+
+    settings: dict[str, Any] = {
         "ROBOTSTXT_OBEY": True,
         "USER_AGENT": DEFAULT_BROWSER_USER_AGENT,
-        "DOWNLOAD_DELAY": crawler_settings.delay,
-        "DOWNLOAD_DELAY_JITTER": (
-            1.0 if crawler_settings.randomize_delay else 0.0
-        ),
-        "CONCURRENT_REQUESTS": crawler_settings.concurrent_requests,
-        "DOWNLOAD_TIMEOUT": crawler_settings.download_timeout,
+
+        # Throughput: global max 8; at most 5 requests per domain.
+        # The database value must be raised (e.g. to 5) for this to take effect.
+        "DOWNLOAD_DELAY": delay,
+        "RANDOMIZE_DOWNLOAD_DELAY": crawler_settings.randomize_delay,
+        "CONCURRENT_REQUESTS": global_concurrency,
+        "CONCURRENT_REQUESTS_PER_DOMAIN": per_domain_concurrency,
+
+        # Adaptive throttling targets up to 4 in-flight requests, while
+        # preserving the configured delay as the minimum request delay.
         "RETRY_ENABLED": crawler_settings.retry_enabled,
         "RETRY_TIMES": crawler_settings.max_retries,
-        "RETRY_HTTP_CODES": [408, 425, 429, 500, 502, 503, 504],
+        # Do not retry 429: allow Spider to stop promptly on rate limiting.
+        # Continue retrying transient network/server failures such as 503.
+        "RETRY_HTTP_CODES": [408, 425, 500, 502, 503, 504],
+        "DOWNLOAD_TIMEOUT": crawler_settings.download_timeout,
         "HTTPERROR_ALLOW_ALL": True,
         "AUTOTHROTTLE_ENABLED": True,
-        "AUTOTHROTTLE_TARGET_CONCURRENCY": 0.5,
-        "AUTOTHROTTLE_START_DELAY": crawler_settings.delay,
-        "AUTOTHROTTLE_MAX_DELAY": max(crawler_settings.delay * 8, 30.0),
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 1,
+        "AUTOTHROTTLE_TARGET_CONCURRENCY": target_concurrency,
+        "AUTOTHROTTLE_START_DELAY": delay,
+        "AUTOTHROTTLE_MAX_DELAY": max(delay * 4, 8.0),
+        "AUTOTHROTTLE_DEBUG": False,
+
         "COOKIES_ENABLED": True,
         "CLOSESPIDER_TIMEOUT": closespider_timeout,
         "ITEM_PIPELINES": ITEM_PIPELINES if publish_kafka else {},
@@ -179,14 +197,12 @@ def _build_report(
     stats: dict[str, Any],
     crawl_run_id: str,
 ) -> dict[str, Any]:
-    """Trả số liệu thô; Application chịu trách nhiệm phân loại trạng thái."""
+    """Return crawl statistics for the application layer."""
     return {
         "status": "ok",
         "crawl_run_id": crawl_run_id,
         "items_scraped": int(stats.get("item_scraped_count", 0)),
-        "raw_events_built": int(
-            stats.get("listing/raw_events_built", 0)
-        ),
+        "raw_events_built": int(stats.get("listing/raw_events_built", 0)),
         "requests_total": int(stats.get("downloader/request_count", 0)),
         "request_failures": int(
             stats.get("request/failed", 0)
@@ -197,11 +213,37 @@ def _build_report(
             stats.get("httperror/response_ignored_count", 0)
         ),
         "finish_reason": stats.get("finish_reason"),
+        "elapsed_time_seconds": round(
+            (stats["finish_time"] - stats["start_time"]).total_seconds(), 3
+        )
+        if stats.get("finish_time") and stats.get("start_time")
+        else None,
+        "listing_pages_parsed": int(stats.get("listing/pages_parsed", 0)),
+        "listings_found": int(stats.get("listing/items_found", 0)),
+        "detail_pages_parsed": int(stats.get("detail/pages_parsed", 0)),
+        "detail_request_failed": int(stats.get("detail/request_failed", 0)),
+        "description_found": int(stats.get("detail/description_found", 0)),
+        "description_missing": int(stats.get("detail/description_missing", 0)),
+        "contact_found": int(stats.get("detail/contact_found", 0)),
+        "detail_requests_scheduled": int(stats.get("detail/request_scheduled", 0)),
+        "detail_requests_skipped": int(stats.get("detail/request_skipped", 0)),
+        "detail_cache_hits": int(stats.get("detail/cache_hit", 0)),
+        "detail_cache_rows_loaded": int(stats.get("detail/cache_rows_loaded", 0)),
+        "detail_cache_writes": int(stats.get("detail/cache_writes", 0)),
+        "detail_cache_lookup_failed": int(stats.get("detail/cache_lookup_failed", 0)),
+        "detail_cache_write_failed": int(stats.get("detail/cache_write_failed", 0)),
+        "items_per_second": round(
+            int(stats.get("listing/raw_events_built", 0))
+            / max((stats["finish_time"] - stats["start_time"]).total_seconds(), 0.001),
+            3,
+        )
+        if stats.get("finish_time") and stats.get("start_time")
+        else None,
     }
 
 
 def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
-    """Chạy một crawl trong một process riêng."""
+    """Run one crawl in a separate worker process."""
     _load_runtime_environment()
     crawl_run_id = _require_text(payload, "crawl_run_id")
     config_json = _require_text(payload, "config_json")
@@ -213,15 +255,13 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     )
     publish_kafka = _optional_bool(payload, "publish_kafka", True)
     browser_headless = _optional_bool(payload, "browser_headless", True)
+
     try:
         config_data = json.loads(config_json)
     except json.JSONDecodeError as exc:
-        raise ValueError(
-        "Worker payload must be valid JSON."
-    ) from exc
+        raise ValueError("Worker payload must be valid JSON.") from exc
 
     config = CrawlerConfig.model_validate(config_data)
-
     if not config.enabled:
         raise ValueError(f"Crawler site {config.site_id!r} is disabled.")
 
@@ -236,9 +276,29 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
         priority="project",
     )
 
+    # The persistent cache prevents detail pages from being downloaded on
+    # every scheduled run. A migration must be applied before using this mode.
+    selector_dict = config.selectors.to_parser_dict()
+    needs_detail_cache = bool(
+        selector_dict.get("description")
+        or selector_dict.get("contact_info")
+        or config.site_id.strip().lower() == "meeyland"
+    )
+    detail_cache: PostgresListingDetailCache | None = None
+    if needs_detail_cache:
+        detail_cache = PostgresListingDetailCache.from_environment()
+        try:
+            detail_cache.check_schema()
+        except Exception as exc:
+            detail_cache.close()
+            raise RuntimeError(
+                "The table crawler_listing_detail_cache is missing or unavailable. "
+                "Apply sql/001_create_listing_detail_cache.sql before running "
+                "the selective detail-crawl mode."
+            ) from exc
+
     process = CrawlerProcess(settings=scrapy_settings)
     crawler = process.create_crawler(RealEstateSpider)
-
     failures: list[Failure] = []
 
     def capture_failure(failure: Failure) -> None:
@@ -249,10 +309,15 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
         config=config,
         crawl_run_id=crawl_run_id,
         event_builder=RawEventBuilder(),
+        detail_cache=detail_cache,
     ).addErrback(capture_failure)
 
-    # Worker này chỉ thực hiện một crawl, vì vậy reactor chỉ khởi động một lần.
-    process.start()
+    # This worker performs one crawl, so the reactor starts exactly once.
+    try:
+        process.start()
+    finally:
+        if detail_cache is not None:
+            detail_cache.close()
 
     if failures:
         failure = failures[0]
@@ -264,18 +329,15 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def main() -> int:
-    # stdout dành riêng cho giao thức JSON; log và print khác đi sang stderr.
+    # stdout is reserved for the JSON protocol; other logs go to stderr.
     result_stream = sys.stdout
     sys.stdout = sys.stderr
-
     try:
         result = run_worker(_read_payload())
         _write_result(result, result_stream)
         return 0
-
     except Exception as exc:
         logger.exception("Scrapy worker failed")
-
         _write_result(
             {
                 "status": "error",
@@ -286,7 +348,6 @@ def main() -> int:
             result_stream,
         )
         return 1
-
     finally:
         sys.stdout = result_stream
 

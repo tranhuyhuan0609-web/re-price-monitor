@@ -131,6 +131,8 @@ class ListingParser:
         for name, selector in selectors.items():
             if name in {"item", "url", "description"}:
                 continue
+            if name in {"raw_address", "raw_area"} and "::" not in selector:
+                continue
             if not _VALUE_SELECTOR_RE.search(selector):
                 raise ValueError(
                     f"Selector '{name}' must end with ::text or ::attr(...), "
@@ -192,7 +194,7 @@ class ListingParser:
     def _extract_values(self, item: Selector) -> dict[str, str | None]:
         values: dict[str, str | None] = dict.fromkeys(self.OPTIONAL_FIELDS)
         for name, selector in self._plan:
-            if name == "description":
+            if name == "description" or (name in {"raw_address", "raw_area"} and "::" not in selector):
                 values[name] = self._text_content(item, selector)
             else:
                 values[name] = self._first_value(item, selector)

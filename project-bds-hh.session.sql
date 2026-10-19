@@ -1,8 +1,9 @@
 UPDATE crawler_configs
 SET
+    enabled = false;
     config_json = jsonb_set(
         config_json,
-        '{schedule_interval_seconds}',
-        '300'
+        '{enabled}',
+        'false'
     ),
     updated_at = now();
