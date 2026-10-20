@@ -1,10 +1,7 @@
 from __future__ import annotations
-
 import os
 from typing import Any
-
 from scrapy import Spider
-
 from src.domain.entities.raw_event import RawEvent
 from src.infrastructure.messaging.kafka_raw_event_producer import (
     KafkaRawEventProducer,

@@ -1,9 +1,7 @@
 from __future__ import annotations
-
 import re
 from html import unescape
 from typing import Mapping
-
 from scrapy.http import TextResponse
 
 

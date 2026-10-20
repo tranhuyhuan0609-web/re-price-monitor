@@ -1,8 +1,4 @@
-
-"""Raw Event contract and builder. No Scrapy dependency (Python >= 3.10)."""
-
 from __future__ import annotations
-
 import json
 import re
 from collections.abc import Callable, Sequence
@@ -15,11 +11,6 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 class RawEventBuildError(ValueError):
     """Raised when a Raw Event violates its contract."""
-
-
-# ----------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------
 
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _PERCENT_RE = re.compile(r"%[0-9a-fA-F]{2}")
@@ -201,11 +192,6 @@ def _lenient_page_url(value: str | None) -> str | None:
     except RawEventBuildError:
         return None
 
-
-# ----------------------------------------------------------------------
-# Contracts
-# ----------------------------------------------------------------------
-
 class ListingLike(Protocol):
     """Structural interface for a parsed listing."""
 
@@ -252,11 +238,6 @@ _TEXT_FIELDS = (
     "contact_info",
 )
 
-
-# ----------------------------------------------------------------------
-# Raw Event
-# ----------------------------------------------------------------------
-
 @dataclass(frozen=True, slots=True)
 class RawEvent:
     """Immutable event representing one listing observation."""
@@ -267,7 +248,7 @@ class RawEvent:
     crawl_run_id: str
     crawled_at: datetime
 
-    # Required field: no default and placed before optional fields.
+
     parser_version: str
 
     title: str | None = None
@@ -316,11 +297,6 @@ class RawEvent:
             raise RawEventBuildError(
                 "raw_payload must be a dict, string, or None"
             )
-
-
-# ----------------------------------------------------------------------
-# Builder
-# ----------------------------------------------------------------------
 
 class RawEventBuilder:
     """Build validated Raw Events from parsed listings."""

@@ -4,7 +4,6 @@ import re
 from typing import Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -209,12 +208,6 @@ class CrawlerSettings(StrictBaseModel):
             )
 
         return self
-
-
-# ============================================================
-# Crawler configuration
-# ============================================================
-
 class CrawlerConfig(StrictBaseModel):
     """Validated configuration for one crawl source."""
 

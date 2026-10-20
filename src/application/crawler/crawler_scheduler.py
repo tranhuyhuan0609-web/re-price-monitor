@@ -1,15 +1,12 @@
 from __future__ import annotations
-
 import asyncio
 import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Awaitable
-
 from src.application.crawler.crawl_run_result import CrawlRunResult
 from src.application.interfaces.config_repository import ConfigRepository
 from src.domain.entities.crawler_config import CrawlerConfig
-
 logger = logging.getLogger(__name__)
 
 

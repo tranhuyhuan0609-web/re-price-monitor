@@ -1,12 +1,9 @@
 from __future__ import annotations
-
 import json
 from html import unescape
 from typing import Any
-
 from scrapy.http import TextResponse
 from scrapy.selector import Selector
-
 from .css_extractor import CssDetailExtractor
 
 

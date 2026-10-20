@@ -1,11 +1,8 @@
 from __future__ import annotations
-
 import asyncio
-
 from src.application.interfaces.config_repository import ConfigRepository
 from src.application.crawler.crawler_runner import CrawlerRunner
 from src.application.crawler.crawl_run_result import CrawlRunResult
-
 
 class CrawlSite:
     def __init__(

@@ -1,9 +1,7 @@
 from __future__ import annotations
-
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Protocol
-
 from psycopg import Connection
 
 USD_TO_VND = ("USD", "VND")

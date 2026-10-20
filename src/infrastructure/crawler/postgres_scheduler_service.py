@@ -1,9 +1,6 @@
 from __future__ import annotations
-
 import asyncio
-
 from psycopg_pool import AsyncConnectionPool
-
 from src.application.crawler.crawl_site import CrawlSite
 from src.application.crawler.crawler_runner import CrawlerRunner
 from src.application.crawler.crawler_scheduler import CrawlerScheduler

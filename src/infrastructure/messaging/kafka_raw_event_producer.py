@@ -1,10 +1,7 @@
 from __future__ import annotations
-
 import logging
 from typing import Any, Protocol
-
 from confluent_kafka import KafkaException, Producer
-
 from src.domain.entities.raw_event import RawEvent
 from src.infrastructure.messaging.raw_event_envelope import (
     serialize_raw_event,

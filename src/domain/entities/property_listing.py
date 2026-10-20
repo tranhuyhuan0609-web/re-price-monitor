@@ -1,7 +1,5 @@
-
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Literal
-
 from pydantic import (
     AwareDatetime,
     BaseModel,

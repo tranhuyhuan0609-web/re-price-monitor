@@ -1,9 +1,7 @@
 from __future__ import annotations
-
 import logging
 import time
 from collections.abc import Callable
-
 from src.infrastructure.config.settings import load_settings
 from src.infrastructure.postgres.exchange_rate_update_service import (
     update_exchange_rate,

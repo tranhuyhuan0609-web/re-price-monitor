@@ -1,14 +1,13 @@
 from __future__ import annotations
-
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from dataclasses import dataclass
-
 from psycopg import Connection
-
+from psycopg.types.json import Jsonb
 from src.application.parsers.create_url_hash import create_url_hash
 from src.infrastructure.messaging.raw_event_envelope import (
     deserialize_raw_event_envelope,
@@ -17,6 +16,7 @@ from src.infrastructure.postgres.exchange_rate_provider import (
     ExchangeRateProvider,
 )
 
+logger = logging.getLogger(__name__)
 PROCESSING_VERSION = 1
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
 
@@ -86,7 +86,7 @@ def _timestamp(value: str) -> datetime:
 
 
 class RawEventCleanProcessor:
-    """Convert one raw envelope into one idempotent Silver observation."""
+    """Converts a batch of raw envelopes into idempotent Silver observations inside PostgreSQL."""
 
     def __init__(
         self,
@@ -96,120 +96,155 @@ class RawEventCleanProcessor:
         self._connection = connection
         self._exchange_rate_provider = exchange_rate_provider
 
-    def handle(self, message: Any) -> None:
-        envelope = deserialize_raw_event_envelope(message.value())
-        payload = envelope["payload"]
+    def _extract_and_transform(self, message: Any) -> tuple[tuple, tuple, tuple] | None:
+        """Parses and transforms a single raw message into structural table tuples."""
+        try:
+            envelope = deserialize_raw_event_envelope(message.value())
+            payload = envelope["payload"]
 
-        url = payload.get("url")
-        title = payload.get("title")
+            url = payload.get("url")
+            title = payload.get("title")
 
-        if not isinstance(url, str) or not url.strip():
-            raise ValueError("raw event payload.url is required")
+            if not isinstance(url, str) or not url.strip():
+                raise ValueError("raw event payload.url is required")
 
-        if not isinstance(title, str) or not title.strip():
-            title = url
+            if not isinstance(title, str) or not title.strip():
+                title = url
 
-        crawled_at = _timestamp(envelope["crawled_at"])
-        run_started_at = crawled_at
-        listing_key = envelope["listing_key"]
-        source = envelope["source"]
-        parsed_price = parse_price(payload.get("raw_price"))
-        price_status = parsed_price.status
-        amount = parsed_price.amount
-        currency = parsed_price.currency
-        price_vnd = None
-        if price_status == "known" and currency == "VND":
-            price_vnd = amount
-        elif price_status == "known":
-            if self._exchange_rate_provider is None:
-                raise ValueError(
-                    f"exchange rate provider is required for {currency}"
+            crawled_at = _timestamp(envelope["crawled_at"])
+            run_started_at = crawled_at
+            listing_key = envelope["listing_key"]
+            source = envelope["source"]
+            
+            parsed_price = parse_price(payload.get("raw_price"))
+            price_status = parsed_price.status
+            amount = parsed_price.amount
+            currency = parsed_price.currency
+            
+            price_vnd = None
+            if price_status == "known" and currency == "VND":
+                price_vnd = amount
+            elif price_status == "known":
+                if self._exchange_rate_provider is None:
+                    raise ValueError(f"Exchange rate provider is required for currency: {currency}")
+                
+                fx_rate, _ = self._exchange_rate_provider.get_rate(
+                    base_currency=currency,
+                    quote_currency="VND",
+                    at=crawled_at,
                 )
-            fx_rate, _ = self._exchange_rate_provider.get_rate(
-                base_currency=currency,
-                quote_currency="VND",
-                at=crawled_at,
-            )
-            price_vnd = (amount * fx_rate).quantize(
-                Decimal("1"), rounding=ROUND_HALF_UP
-            )
-        area_m2 = parse_area_m2(payload.get("raw_area"))
-        price_per_m2 = (
-            (price_vnd / area_m2).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-            if price_vnd is not None and area_m2
-            else None
-        )
-        description = payload.get("description")
-        
-    
-        raw_contact_info = payload.get("contact_info")
-        contact_info_json = json.dumps(raw_contact_info, ensure_ascii=False) if raw_contact_info is not None else None
-        
-        quality_flags = list(payload.get("quality_flags") or [])
-
-        with self._connection.transaction():
-            self._connection.execute(
-                """
-                INSERT INTO processed_raw_events
-                    (raw_event_id, run_started_at)
-                VALUES (%s, %s)
-                ON CONFLICT (raw_event_id) DO NOTHING
-                """,
-                (envelope["raw_event_id"], run_started_at),
+                price_vnd = (amount * fx_rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+                
+            area_m2 = parse_area_m2(payload.get("raw_area"))
+            price_per_m2 = (
+                (price_vnd / area_m2).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+                if price_vnd is not None and area_m2
+                else None
             )
             
-            self._connection.execute(
-                """
-                INSERT INTO listing_observation (
-                    raw_event_id, crawl_run_id, run_started_at, crawled_at,
-                    listing_key, source, url, url_hash,
-                    title, transaction_type, description, contact_info, price_status, price_basis,
-                    currency, amount, price_vnd,
-                    price_per_m2, area_m2,
-                    address_raw, quality_flags, processing_version
-                ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sale',
-                    %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s,
-                    %s, %s, %s
-                )
-                ON CONFLICT (run_started_at, raw_event_id) DO NOTHING
-                """,
-                (
-                    envelope["raw_event_id"],
-                    envelope["crawl_run_id"],
-                    run_started_at,
-                    crawled_at,
-                    listing_key,
-                    source,
-                    url,
-                    create_url_hash(url),
-                    title,
-                    description,
-                    contact_info_json, 
-                    price_status,
-                    parsed_price.basis,
-                    currency,
-                    amount,
-                    price_vnd,
-                    price_per_m2,
-                    area_m2,
-                    payload.get("raw_address"),
-                    quality_flags,
-                    PROCESSING_VERSION,
-                ),
+            description = payload.get("description")
+            quality_flags = list(payload.get("quality_flags") or [])
+
+            # Pack mapped data into tuple structures aligned with SQL schemas
+            evt_row = (envelope["raw_event_id"], run_started_at)
+            
+            obs_row = (
+                envelope["raw_event_id"],
+                envelope["crawl_run_id"],
+                run_started_at,
+                crawled_at,
+                listing_key,
+                source,
+                url,
+                create_url_hash(url),
+                title,
+                description,
+                Jsonb(payload.get("contact_info")) if payload.get("contact_info") is not None else None,
+                price_status,
+                parsed_price.basis,
+                currency,
+                amount,
+                price_vnd,
+                price_per_m2,
+                area_m2,
+                payload.get("raw_address"),
+                quality_flags,
+                PROCESSING_VERSION,
             )
-            self._connection.execute(
-                """
-                INSERT INTO listing_lifecycle
-                    (listing_key, status, missing_count, last_seen_at)
-                VALUES (%s, 'active', 0, %s)
-                ON CONFLICT (listing_key) DO UPDATE SET
-                    status = 'active',
-                    missing_count = 0,
-                    last_seen_at = EXCLUDED.last_seen_at,
-                    ended_at = NULL,
-                    updated_at = now()
-                """,
-                (listing_key, crawled_at),
-            )
+            
+            lc_row = (listing_key, crawled_at)
+            return evt_row, obs_row, lc_row
+
+        except Exception as e:
+            logger.error(f"Application parsing error encountered: {e}")
+            return None
+
+    def _execute_db_batch(self, evts: list, obss: list, lcs: list) -> None:
+        """Executes bulk inserts across 3 tables inside a single atomic transaction block."""
+        with self._connection.transaction():
+            with self._connection.cursor() as cur:
+                if evts:
+                    cur.executemany(
+                        """
+                        INSERT INTO processed_raw_events
+                            (raw_event_id, run_started_at)
+                        VALUES (%s, %s)
+                        ON CONFLICT (raw_event_id) DO NOTHING
+                        """,
+                        evts
+                    )
+                if obss:
+                    cur.executemany(
+                        """
+                        INSERT INTO listing_observation (
+                            raw_event_id, crawl_run_id, run_started_at, crawled_at,
+                            listing_key, source, url, url_hash,
+                            title, transaction_type, description, contact_info, price_status, price_basis,
+                            currency, amount, price_vnd,
+                            price_per_m2, area_m2,
+                            address_raw, quality_flags, processing_version
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sale',
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s,
+                            %s, %s, %s
+                        )
+                        ON CONFLICT (run_started_at, raw_event_id) DO NOTHING
+                        """,
+                        obss
+                    )
+                if lcs:
+                    cur.executemany(
+                        """
+                        INSERT INTO listing_lifecycle
+                            (listing_key, status, missing_count, last_seen_at)
+                        VALUES (%s, 'active', 0, %s)
+                        ON CONFLICT (listing_key) DO UPDATE SET
+                            status = 'active',
+                            missing_count = 0,
+                            last_seen_at = EXCLUDED.last_seen_at,
+                            ended_at = NULL,
+                            updated_at = now()
+                        """,
+                        lcs
+                    )
+
+    def handle_batch(self, messages: list[Any]) -> None:
+        """Main entry point to process a bulk list of incoming Kafka messages."""
+        if not messages:
+            return
+
+        evts, obss, lcs = [], [], []
+        
+        # Phase 1: Transform data records sequentially using memory tasks
+        for msg in messages:
+            parsed = self._extract_and_transform(msg)
+            if parsed:
+                e, o, l = parsed
+                evts.append(e)
+                obss.append(o)
+                lcs.append(l)
+
+        # Phase 2: Execute efficient bulk relational operations into PostgreSQL
+        if evts:
+            self._execute_db_batch(evts, obss, lcs)

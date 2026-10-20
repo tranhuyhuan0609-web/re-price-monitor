@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 from psycopg import connect
-
 from src.infrastructure.config.settings import load_settings
 from src.infrastructure.postgres.exchange_rate_updater import (
     ExchangeRateSnapshot,

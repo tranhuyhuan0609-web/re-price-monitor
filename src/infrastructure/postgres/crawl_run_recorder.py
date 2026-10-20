@@ -1,9 +1,6 @@
 from __future__ import annotations
-
 from typing import Any
-
 from psycopg import Connection
-
 from src.application.crawler.crawl_run_result import CrawlRunResult
 
 

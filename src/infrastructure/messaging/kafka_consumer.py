@@ -12,15 +12,16 @@ from confluent_kafka import (
 
 logger = logging.getLogger(__name__)
 
-class MessageHandler(Protocol):
-    def handle(self, message: Message) -> None:
+class MessageHandlerBatch(Protocol):
+    """Protocol for processors that handle bulk message arrays instead of single items."""
+    def handle_batch(self, messages: list[Message]) -> None:
         ...
 
 class KafkaConsumerError(RuntimeError):
     """Raised when consuming or processing a Kafka message fails."""
 
 class KafkaMessageConsumer:
-    """Consume messages and commit offsets only after successful processing."""
+    """Consumes messages in batches and commits offsets explicitly following database confirmations."""
 
     def __init__(
         self,
@@ -28,9 +29,10 @@ class KafkaMessageConsumer:
         bootstrap_servers: str,
         group_id: str,
         topics: list[str],
-        handler: MessageHandler,
+        handler: MessageHandlerBatch,
         consumer: Any | None = None,
         poll_timeout: float = 1.0,
+        batch_size: int = 200,          
         dlq_bootstrap_servers: str | None = None,
         dlq_topic: str | None = None,
     ) -> None:
@@ -42,6 +44,8 @@ class KafkaMessageConsumer:
             raise ValueError("topics must contain non-blank values")
         if poll_timeout <= 0:
             raise ValueError("poll_timeout must be positive")
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
         if (dlq_bootstrap_servers is None) != (dlq_topic is None):
             raise ValueError(
                 "dlq_bootstrap_servers and dlq_topic must be configured together"
@@ -50,9 +54,10 @@ class KafkaMessageConsumer:
             raise ValueError("dlq_topic must not be blank")
 
         self._poll_timeout = poll_timeout
+        self._batch_size = batch_size
         self._handler = handler
         self._closed = False
-        self._running = True  # Cờ kiểm soát luồng chạy ngầm để stop an toàn
+        self._running = True  
         
         self._dlq_topic = dlq_topic.strip() if dlq_topic else None
         self._dlq_producer = (
@@ -68,77 +73,89 @@ class KafkaMessageConsumer:
                 "enable.auto.commit": False,
                 "enable.auto.offset.store": False,
                 "auto.offset.reset": "earliest",
-                "session.timeout.ms": 10000,
+                "session.timeout.ms": 40000,
                 "max.poll.interval.ms": 300000,
             }
         )
         self._consumer.subscribe([topic.strip() for topic in topics])
 
     def run(self, *, max_messages: int | None = None) -> int:
-        """Process messages until stopped or max_messages have succeeded."""
+        """Processes messages in batches until stopped or max_messages thresholds are fulfilled."""
         if max_messages is not None and max_messages <= 0:
             raise ValueError("max_messages must be positive when provided")
 
         processed = 0
         self._running = True
+        msg_buffer: list[Message] = []  
 
-        # Vòng lặp kiểm tra thêm cờ chạy _running để hỗ trợ dừng ứng dụng mượt mà
         while self._running and (max_messages is None or processed < max_messages):
-            
-            # Kích hoạt poll Producer định kỳ giải phóng hàng đợi sự kiện của DLQ
             if self._dlq_producer is not None:
                 self._dlq_producer.poll(0)
 
             message = self._consumer.poll(self._poll_timeout)
+            
             if message is None:
+                # Timeout hit (idle stream) -> Immediately flush remaining cached buffer contents to avoid delays
+                if msg_buffer:
+                    self._dispatch_batch(msg_buffer)
+                    processed += len(msg_buffer)
+                    msg_buffer = []
                 continue
 
             if message.error() is not None:
                 if message.error().code() == KafkaError._PARTITION_EOF:
                     continue
-                raise KafkaConsumerError(
-                    f"Kafka poll failed: {message.error()}"
-                )
+                raise KafkaConsumerError(f"Kafka poll failed: {message.error()}")
 
-            try:
-                self._handler.handle(message)
-                self._consumer.commit(message=message, asynchronous=False)
-            except Exception as exc:
-                logger.exception(
-                    "Kafka message processing failed topic=%s partition=%s offset=%s",
-                    message.topic(),
-                    message.partition(),
-                    message.offset(),
-                )
-                
-                if self._dlq_producer is None or self._dlq_topic is None:
-                    raise KafkaConsumerError(
-                        "Kafka message processing failed"
-                    ) from exc
-                
-                self._publish_dlq(message, exc)
-                # Commit offset sau khi đẩy vào DLQ thành công để tránh lặp tin nhắn lỗi vô hạn
-                self._consumer.commit(message=message, asynchronous=False)
+            msg_buffer.append(message)
 
-            processed += 1
+            if len(msg_buffer) >= self._batch_size:
+                self._dispatch_batch(msg_buffer)
+                processed += len(msg_buffer)
+                msg_buffer = []
+
+        if msg_buffer:
+            self._dispatch_batch(msg_buffer)
+            processed += len(msg_buffer)
 
         return processed
 
+    def _dispatch_batch(self, batch: list[Message]) -> None:
+        """Executes handler batch processing and manages atomic offset commits."""
+        try:
+            self._handler.handle_batch(batch)
+            self._consumer.commit(message=batch[-1], asynchronous=False)
+        except Exception as exc:
+            logger.warning("Bulk batch insert failed. Falling back to row-by-row recovery strategy...")
+            
+            # Fallback Recovery: Fall back to executing single-item workflows to secure poison pills
+            for message in batch:
+                try:
+                    self._handler.handle_batch([message])
+                    self._consumer.commit(message=message, asynchronous=False)
+                except Exception as row_exc:
+                    logger.exception(
+                        "Kafka message processing failed persistently topic=%s partition=%s offset=%s",
+                        message.topic(), message.partition(), message.offset(),
+                    )
+                    if self._dlq_producer is None or self._dlq_topic is None:
+                        raise KafkaConsumerError("Persistent message failure occurred but DLQ is not configured") from row_exc
+                    
+                    # Push single corrupt item to DLQ and advance the commit offset to keep partition alive
+                    self._publish_dlq(message, row_exc)
+                    self._consumer.commit(message=message, asynchronous=False)
+
     def _publish_dlq(self, message: Message, error: Exception) -> None:
+        """Asynchronously dispatches execution context errors to the destination DLQ pipeline."""
         payload = {
             "error_type": type(error).__name__,
             "error_message": str(error),
             "source_topic": message.topic(),
             "source_partition": message.partition(),
             "source_offset": message.offset(),
-            "value": (
-                message.value().decode("utf-8", errors="replace")
-                if message.value() is not None
-                else None
-            ),
+            "value": (message.value().decode("utf-8", errors="replace") if message.value() is not None else None),
         }
         try:
-            # Gửi bất đồng bộ (Asynchronous), không block luồng xử lý chính
             self._dlq_producer.produce(
                 topic=self._dlq_topic,
                 key=message.key(),
@@ -151,11 +168,9 @@ class KafkaMessageConsumer:
         if self._closed:
             return
         try:
-            self._running = False  # Đánh dấu dừng vòng lặp run()
+            self._running = False  
             self._consumer.unsubscribe()
             self._consumer.close()
-            
-            # Đợi tối đa 10s dọn sạch các tin nhắn DLQ còn sót lại trong hàng đợi trước khi tắt hẳn
             if self._dlq_producer is not None:
                 self._dlq_producer.flush(10.0)
         except KafkaException as exc:

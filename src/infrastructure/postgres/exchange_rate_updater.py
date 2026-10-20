@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import json
 import re
 from collections.abc import Callable
@@ -10,10 +9,8 @@ from typing import Any, Protocol
 from urllib.request import Request, urlopen
 from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
-
 from psycopg import Connection
 from psycopg.types.json import Jsonb
-
 from src.infrastructure.postgres.exchange_rate_provider import (
     RATE_TYPE_SELL,
     USD_TO_VND,

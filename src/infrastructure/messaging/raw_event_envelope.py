@@ -1,9 +1,7 @@
 from __future__ import annotations
-
 import json
 from datetime import datetime, timezone
 from typing import Any, Mapping
-
 from src.domain.entities.raw_event import RawEvent
 from src.application.parsers.create_url_hash import create_url_hash
 

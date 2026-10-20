@@ -1,10 +1,8 @@
 from __future__ import annotations
-
 import os
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Any
-
 import psycopg
 from psycopg.rows import dict_row
 

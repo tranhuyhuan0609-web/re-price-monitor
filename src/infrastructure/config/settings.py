@@ -1,9 +1,7 @@
-
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
-
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 

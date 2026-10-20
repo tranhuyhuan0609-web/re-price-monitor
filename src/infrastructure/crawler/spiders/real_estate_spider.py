@@ -7,14 +7,12 @@ from html import unescape
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urldefrag, urlsplit
-
 import scrapy
 from scrapy import Request
 from scrapy.http import Response, TextResponse
 from scrapy.selector import Selector
 from scrapy.utils.defer import maybe_deferred_to_future
 from twisted.internet.threads import deferToThread
-
 from src.infrastructure.database.postgres_listing_detail_cache import (
     PostgresListingDetailCache,
 )
@@ -95,8 +93,6 @@ class RealEstateSpider(scrapy.Spider):
         self._seen_pages: set[str] = set(self.start_urls)
         self._seen_listing_keys: set[str] = set()
 
-    # ------------------------------------------------------------------ requests
-
     def _initial_requests(self) -> Iterator[Request]:
         for url in self.start_urls:
             yield Request(
@@ -111,7 +107,6 @@ class RealEstateSpider(scrapy.Spider):
         for request in self._initial_requests():
             yield request
 
-    # ------------------------------------------------------------------ listing page
 
     async def parse(self, response: Response) -> AsyncIterator[Request | RawEvent]:
         """Parse listing cards, reuse cached details, and paginate asynchronously."""
@@ -249,8 +244,6 @@ class RealEstateSpider(scrapy.Spider):
         if not required:
             return False
 
-        # If the list card itself already supplies every required field, no
-        # detail request is needed.
         if all(getattr(listing, name, None) for name in required):
             return False
 
@@ -268,8 +261,6 @@ class RealEstateSpider(scrapy.Spider):
                 age = (now - last_success).total_seconds()
                 if age < self.detail_cache.refresh_after_seconds:
                     return False
-            # Avoid immediately repeating a failed refresh of otherwise usable
-            # cached data. It can be retried after the missing/retry cooldown.
             if (
                 last_outcome == "failed"
                 and isinstance(last_attempt, datetime)
@@ -330,8 +321,6 @@ class RealEstateSpider(scrapy.Spider):
         if not self._detail_cache_lookup_failure_logged:
             self.logger.warning(message)
             self._detail_cache_lookup_failure_logged = True
-
-    # ------------------------------------------------------------------ detail page
 
     async def parse_detail(
         self,
@@ -411,10 +400,6 @@ class RealEstateSpider(scrapy.Spider):
         return [event] if event is not None else []
 
 
-
-    
-    # ------------------------------------------------------------------ event builder
-
     def _build_raw_event(
         self,
         listing: ParsedListing,
@@ -443,7 +428,6 @@ class RealEstateSpider(scrapy.Spider):
         stats.inc_value("listing/raw_events_built")
         return event
 
-    # ------------------------------------------------------------------ pagination
 
     def _next_page_request(
         self,
@@ -507,7 +491,6 @@ class RealEstateSpider(scrapy.Spider):
             meta={"handle_httpstatus_all": True},
         )
 
-    # ------------------------------------------------------------------ errors
 
     async def handle_detail_request_error(self, failure) -> list[RawEvent]:
         """Emit listing-page data and record failed detail attempts after retries."""

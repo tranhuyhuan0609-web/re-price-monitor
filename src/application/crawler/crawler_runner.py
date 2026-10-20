@@ -1,12 +1,9 @@
-
 from __future__ import annotations
-
 import logging
 from collections.abc import Callable
 from typing import Protocol
 from datetime import datetime, timezone
 from uuid import uuid4
-
 from src.application.crawler.crawl_run_result import (
     CrawlRunResult,
     CrawlStatus,
@@ -16,8 +13,6 @@ from src.application.crawler.crawler_executor import (
     CrawlerExecutor,
 )
 from src.domain.entities.crawler_config import CrawlerConfig
-
-
 logger = logging.getLogger(__name__)
 
 

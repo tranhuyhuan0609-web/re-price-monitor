@@ -1,11 +1,8 @@
 from __future__ import annotations
-
 import logging
-
 from src.infrastructure.config.settings import load_settings
 from src.infrastructure.database.mongo_raw_event_writer import MongoRawEventWriter
 from src.infrastructure.messaging.kafka_consumer import KafkaMessageConsumer
-
 logger = logging.getLogger(__name__)
 
 

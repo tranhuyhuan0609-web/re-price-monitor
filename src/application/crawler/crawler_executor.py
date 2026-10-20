@@ -1,11 +1,7 @@
-
 from __future__ import annotations
-
 from dataclasses import dataclass
 from typing import Protocol
-
 from src.domain.entities.crawler_config import CrawlerConfig
-
 
 @dataclass(frozen=True, slots=True)
 class CrawlExecutionReport:

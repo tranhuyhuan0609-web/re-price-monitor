@@ -1,9 +1,6 @@
 from __future__ import annotations
-
 from typing import Protocol
-
 from scrapy.http import TextResponse
-
 
 class DetailExtractor(Protocol):
     """Common interface for site-specific listing detail extraction."""

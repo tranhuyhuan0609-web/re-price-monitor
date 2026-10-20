@@ -1,13 +1,10 @@
-
 from contextlib import asynccontextmanager
 import math
 from typing import TYPE_CHECKING, Any, AsyncIterator
-
 from pydantic import ValidationError
 from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-
 from src.application.exceptions.config_exceptions import (
     ConfigAlreadyExistsError,
     ConfigNotFoundError,
@@ -72,7 +69,6 @@ class PostgresConfigRepository(ConfigRepository):
 
         table = sql.Identifier(*table_parts)
 
-        # Build immutable query templates once.
         self._q_get = sql.SQL(
             """
             SELECT site_id, name, enabled, config_json

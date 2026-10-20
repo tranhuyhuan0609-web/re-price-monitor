@@ -34,9 +34,9 @@ CREATE TABLE listing_observation (
     title NONBLANK_TEXT NOT NULL, 
     description TEXT, 
     contact_info TEXT, 
-    transaction_type TEXT NOT NULL, 
-    price_status TEXT NOT NULL, 
-    price_basis TEXT NOT NULL, 
+    transaction_type VARCHAR(10) NOT NULL, 
+    price_status VARCHAR(10) NOT NULL, 
+    price_basis VARCHAR(10) NOT NULL, 
     currency VARCHAR(3), 
     amount NUMERIC(18,2), 
     price_vnd NUMERIC(18,0), 
@@ -86,7 +86,7 @@ CREATE INDEX idx_obs_listing ON listing_observation (listing_key, run_started_at
 -- ========================================================= 
 CREATE TABLE IF NOT EXISTS listing_lifecycle ( 
     listing_key NONBLANK_TEXT NOT NULL PRIMARY KEY, 
-    status TEXT NOT NULL DEFAULT 'active', 
+    status VARCHAR(10) NOT NULL DEFAULT 'active', 
     missing_count INT NOT NULL DEFAULT 0, 
     last_seen_at TIMESTAMPTZ NOT NULL, 
     ended_at TIMESTAMPTZ, 

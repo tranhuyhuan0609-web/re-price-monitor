@@ -1,7 +1,5 @@
 from __future__ import annotations
-
 from collections.abc import Callable, Mapping
-
 from .base import DetailExtractor
 from .css_extractor import CssDetailExtractor
 from .meeyland_astro_extractor import MeeylandAstroExtractor
