@@ -5,7 +5,6 @@ def test_invalid_url_hash_is_rejected():
     with pytest.raises(ValidationError):
         ListingIdentity(
             source="test-source",
-            source_listing_id="12345",
             url="https://example.com/listing/12345",
             url_hash="invalid-hash",  
         )

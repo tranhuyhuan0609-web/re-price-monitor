@@ -7,14 +7,13 @@ def observation_data():
     return ListingObservation (
         identity={
             "source": "batdongsan",
-            "source_listing_id": "123",
             "url": "https://example.com/property/123",
             "url_hash": "a" * 64,
         },
         listing={
             "title": "Bán căn hộ",
             "transaction_type": "sale",
-            "published_at": None,
+         
         },
         price={
             "status": "known",

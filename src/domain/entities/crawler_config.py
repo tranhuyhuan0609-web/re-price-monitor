@@ -38,7 +38,6 @@ class Selectors(StrictBaseModel):
     item: NonBlank
     url: NonBlank
 
-    source_listing_id: NonBlank | None = None
     title: NonBlank | None = None
     description: NonBlank | None = None
     raw_price: NonBlank | None = None
@@ -235,6 +234,7 @@ class CrawlerConfig(StrictBaseModel):
     selectors: Selectors
     pagination: Pagination
     crawler_settings: CrawlerSettings
+    detail_extractor: Literal["css", "meeyland_astro"] = "css"
     
     parser_version: str = "1.0.0"
 

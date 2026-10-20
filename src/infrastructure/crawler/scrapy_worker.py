@@ -3,16 +3,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random as random_hh
 import sys
 import traceback
 from pathlib import Path
 from typing import Any, TextIO
-
 from dotenv import load_dotenv
 from scrapy.crawler import CrawlerProcess
 from scrapy.settings import Settings
 from twisted.python.failure import Failure
-
 from src.domain.entities.crawler_config import CrawlerConfig
 from src.domain.entities.raw_event import RawEventBuilder
 from src.infrastructure.crawler.spiders.real_estate_spider import RealEstateSpider
@@ -28,9 +27,9 @@ ITEM_PIPELINES: dict[str, int] = {
 }
 
 DEFAULT_BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/140.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/119.0"
 )
 DEFAULT_CLOSESPIDER_TIMEOUT = 7200
 
@@ -127,11 +126,12 @@ def _build_scrapy_settings(
     global_concurrency = min(requested_concurrency, 8)
     per_domain_concurrency = min(global_concurrency, 5)
     target_concurrency = min(float(per_domain_concurrency), 4.0)
-    delay = max(0.0, float(crawler_settings.delay))
-
+    base_delay = crawler_settings.delay
+    delay = random_hh.uniform(float(base_delay)-1.0, float(base_delay)+1.0)
+    selector_agent = random_hh.choice(DEFAULT_BROWSER_USER_AGENT)
     settings: dict[str, Any] = {
-        "ROBOTSTXT_OBEY": True,
-        "USER_AGENT": DEFAULT_BROWSER_USER_AGENT,
+        "ROBOTSTXT_OBEY": False,
+        "USER_AGENT": selector_agent,
 
         # Throughput: global max 8; at most 5 requests per domain.
         # The database value must be raised (e.g. to 5) for this to take effect.
@@ -168,10 +168,11 @@ def _build_scrapy_settings(
         "PLAYWRIGHT_BROWSER_TYPE": "chromium",
         "PLAYWRIGHT_LAUNCH_OPTIONS": {
             "headless": browser_headless,
+            "args": ["--disable-blink-features=AutomationControlled"]
         },
         "PLAYWRIGHT_CONTEXTS": {
             "default": {
-                "user_agent": DEFAULT_BROWSER_USER_AGENT,
+                "user_agent": selector_agent,
                 "locale": "vi-VN",
                 "timezone_id": "Asia/Ho_Chi_Minh",
                 "extra_http_headers": {

@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+from src.infrastructure.crawler.detail_extractors.factory import create_detail_extractor
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
 import json
@@ -60,6 +60,10 @@ class RealEstateSpider(scrapy.Spider):
         self.crawl_run_id = crawl_run_id.strip()
         self.event_builder = event_builder
         self.selectors = config.selectors.to_parser_dict()
+        self.detail_extractor = create_detail_extractor(
+            config.detail_extractor,
+            selectors=self.selectors,
+)
         self.detail_cache = detail_cache
         self._detail_cache_usable = detail_cache is not None
         self._detail_cache_writes_usable = detail_cache is not None
@@ -219,13 +223,7 @@ class RealEstateSpider(scrapy.Spider):
             yield next_request
 
     def _required_detail_fields(self) -> tuple[str, ...]:
-        """Return configured detail fields, including Meeyland's Astro contact."""
-        required: list[str] = []
-        if self.selectors.get("description"):
-            required.append("description")
-        if self.selectors.get("contact_info") or self.config.site_id.lower() == "meeyland":
-            required.append("contact_info")
-        return tuple(required)
+        return self.detail_extractor.required_fields
 
     @staticmethod
     def _merge_cached_detail(
@@ -368,7 +366,7 @@ class RealEstateSpider(scrapy.Spider):
             event = self._build_raw_event(listing, crawled_at)
             return [event] if event is not None else []
 
-        description = self._extract_description(response)
+        description = self.detail_extractor.extract_description(response)
         if description:
             stats.inc_value("detail/description_found")
         else:
@@ -381,7 +379,7 @@ class RealEstateSpider(scrapy.Spider):
                 len(response.text),
             )
 
-        contact_info = self._extract_contact_info(response)
+        contact_info = self.detail_extractor.extract_contact_info(response)
         stats.inc_value("detail/pages_parsed")
         stats.inc_value("detail/contact_found", int(bool(contact_info)))
 
@@ -412,226 +410,9 @@ class RealEstateSpider(scrapy.Spider):
         event = self._build_raw_event(enriched_listing, crawled_at)
         return [event] if event is not None else []
 
-    @staticmethod
-    def _clean_description_parts(parts: list[str]) -> str | None:
-        """Normalize description fragments while keeping paragraph boundaries."""
-        cleaned: list[str] = []
-        ignored_labels = {"Xem thêm", "Thu gọn"}
 
-        for part in parts:
-            text = " ".join(unescape(part).split())
-            if not text or text in ignored_labels:
-                continue
-            if not cleaned or cleaned[-1] != text:
-                cleaned.append(text)
 
-        return "\n".join(cleaned) or None
-
-    def _extract_description(self, response: TextResponse) -> str | None:
-        """Extract description robustly from configured selector and fallbacks.
-
-        A configured selector ending in ``::text`` often only returns direct
-        text nodes. Query its element portion and collect descendant text too,
-        so nested spans/links are not silently omitted.
-        """
-        stats = self.crawler.stats
-        selector = self.selectors.get("description")
-
-        if selector:
-            try:
-                if "::attr(" in selector:
-                    value = self._clean_description_parts(
-                        response.css(selector).getall()
-                    )
-                else:
-                    element_selector = selector
-                    if selector.rstrip().endswith("::text"):
-                        element_selector = selector.rsplit("::text", 1)[0].strip()
-
-                    nodes = response.css(element_selector)
-                    parts: list[str] = []
-                    for node in nodes:
-                        parts.extend(
-                            node.xpath(
-                                ".//text()[not(ancestor::script) and not(ancestor::style)]"
-                            ).getall()
-                        )
-                    value = self._clean_description_parts(parts)
-
-                if value:
-                    stats.inc_value("detail/description_from_config")
-                    return value
-            except (ValueError, TypeError) as exc:
-                stats.inc_value("detail/description_selector_error")
-                self.logger.debug(
-                    "Description selector failed site=%s selector=%r error=%s",
-                    self.config.site_id,
-                    selector,
-                    exc,
-                )
-
-        # Meeyland sometimes changes the exact description markup. First try
-        # the server-rendered description container, without reading scripts.
-        if self.config.site_id.strip().lower() == "meeyland":
-            for css in (
-                "div.article-description .break-words",
-                "div.article-description p",
-            ):
-                parts = []
-                for node in response.css(css):
-                    parts.extend(
-                        node.xpath(
-                            ".//text()[not(ancestor::script) and not(ancestor::style)]"
-                        ).getall()
-                    )
-                value = self._clean_description_parts(parts)
-                if value:
-                    stats.inc_value("detail/description_from_dom_fallback")
-                    return value
-
-            # Astro may serialize the full description into a component's
-            # props even when the expected server-rendered markup is absent.
-            islands = response.css(
-                'astro-island[component-url*="Description"][props]'
-            )
-            for island in islands:
-                raw_props = island.attrib.get("props")
-                if not raw_props:
-                    continue
-                try:
-                    props = json.loads(raw_props)
-                except (json.JSONDecodeError, TypeError):
-                    stats.inc_value("detail/description_props_invalid")
-                    continue
-
-                data_wrapper = props.get("data") if isinstance(props, dict) else None
-                if (
-                    not isinstance(data_wrapper, list)
-                    or len(data_wrapper) < 2
-                    or not isinstance(data_wrapper[1], str)
-                ):
-                    continue
-
-                description_html = unescape(data_wrapper[1])
-                fragment = Selector(text=description_html)
-                paragraph_nodes = fragment.css("p")
-                if paragraph_nodes:
-                    parts = []
-                    for node in paragraph_nodes:
-                        parts.extend(node.xpath(".//text()").getall())
-                else:
-                    parts = fragment.xpath("//text()").getall()
-
-                value = self._clean_description_parts(parts)
-                if value:
-                    stats.inc_value("detail/description_from_props")
-                    return value
-
-            # Last-resort summary only. It is not the full listing description,
-            # so count it separately rather than presenting it as full content.
-            meta_summary = response.css(
-                'meta[name="description"]::attr(content)'
-            ).get()
-            value = self._clean_description_parts([meta_summary or ""])
-            if value:
-                stats.inc_value("detail/description_meta_fallback")
-                return value
-
-        stats.inc_value("detail/description_selector_miss")
-        return None
-
-    def _extract_contact_info(self, response: TextResponse) -> str | None:
-        """Extract contact data from the detail page.
-
-        Meeyland embeds the listing contact in the serialized props of its
-        PhoneNumber Astro component. The visible ``tel:`` links elsewhere on
-        the page can be site hotline/support numbers, so they are not used for
-        Meeyland. Other sites continue to use their configured CSS selector.
-        """
-        if self.config.site_id.strip().lower() == "meeyland":
-            unique_phones: list[str] = []
-            seen_article_ids: set[str] = set()
-
-            for island in response.css(
-                'astro-island[component-url*="PhoneNumber"][props]'
-            ):
-                raw_props = island.attrib.get("props")
-                if not raw_props:
-                    continue
-
-                try:
-                    props = json.loads(raw_props)
-                except (json.JSONDecodeError, TypeError):
-                    self.crawler.stats.inc_value(
-                        "detail/contact_props_invalid"
-                    )
-                    continue
-
-                article_wrapper = props.get("article")
-                if (
-                    not isinstance(article_wrapper, list)
-                    or len(article_wrapper) < 2
-                    or not isinstance(article_wrapper[1], dict)
-                ):
-                    continue
-
-                article = article_wrapper[1]
-                article_id_wrapper = article.get("_id")
-                article_id = (
-                    article_id_wrapper[1]
-                    if isinstance(article_id_wrapper, list)
-                    and len(article_id_wrapper) > 1
-                    and isinstance(article_id_wrapper[1], str)
-                    else None
-                )
-
-                # Meeyland may render the same phone component more than once
-                # (for example, responsive layouts). Avoid reading that same
-                # article payload repeatedly.
-                if article_id and article_id in seen_article_ids:
-                    continue
-                if article_id:
-                    seen_article_ids.add(article_id)
-
-                contact_wrapper = article.get("contact")
-                if (
-                    not isinstance(contact_wrapper, list)
-                    or len(contact_wrapper) < 2
-                    or not isinstance(contact_wrapper[1], dict)
-                ):
-                    continue
-
-                contact = contact_wrapper[1]
-                phones_wrapper = contact.get("phones")
-                if (
-                    not isinstance(phones_wrapper, list)
-                    or len(phones_wrapper) < 2
-                    or not isinstance(phones_wrapper[1], list)
-                ):
-                    continue
-
-                for entry in phones_wrapper[1]:
-                    if (
-                        isinstance(entry, list)
-                        and len(entry) > 1
-                        and isinstance(entry[1], str)
-                    ):
-                        phone = entry[1].strip()
-                        if phone and phone not in unique_phones:
-                            unique_phones.append(phone)
-
-            return ", ".join(unique_phones) or None
-
-        contact_selector = self.selectors.get("contact_info")
-        if not contact_selector:
-            return None
-
-        contact_values = response.css(contact_selector).getall()
-        return next(
-            (value.strip() for value in contact_values if value and value.strip()),
-            None,
-        )
-
+    
     # ------------------------------------------------------------------ event builder
 
     def _build_raw_event(

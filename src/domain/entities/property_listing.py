@@ -93,10 +93,6 @@ class PriceInformation(DomainModel):
             )
 
         if self.currency == "VND":
-            if self.fx_rate is not None or self.fx_rate_at is not None:
-                raise ValueError(
-                    "VND prices must not contain exchange-rate fields."
-                )
 
             if (
                 self.price_vnd is not None
@@ -108,9 +104,6 @@ class PriceInformation(DomainModel):
 
             self.price_vnd = self.amount
             return self
-
-        
-
 
 class ListingObservation(DomainModel):
     identity: ListingIdentity
