@@ -2,14 +2,16 @@ from __future__ import annotations
 import re
 from html import unescape
 from typing import Mapping
+import emoji
 from scrapy.http import TextResponse
 
 
 _TEXT_SUFFIX_RE = re.compile(r"\s*::text\s*$")
+_WHITESPACE_RE = re.compile(r"[ \t]+")
 
 
 class CssDetailExtractor:
-    """Extract detail fields using selectors supplied by crawler configuration."""
+    """Extract and clean detail fields using configured selectors."""
 
     def __init__(self, selectors: Mapping[str, str]) -> None:
         self._selectors = dict(selectors)
@@ -28,13 +30,18 @@ class CssDetailExtractor:
         ignored_labels = {"Xem thêm", "Thu gọn"}
 
         for part in parts:
-            text = " ".join(unescape(part).split())
+            text = unescape(part)
+            text = emoji.replace_emoji(text, replace="")
+            text = _WHITESPACE_RE.sub(" ", text).strip()
+
             if not text or text in ignored_labels:
                 continue
+
             if not cleaned or cleaned[-1] != text:
                 cleaned.append(text)
 
-        return "\n".join(cleaned) or None
+        result = "\n".join(cleaned).strip()
+        return result or None
 
     def extract_description(self, response: TextResponse) -> str | None:
         selector = self._selectors.get("description")
@@ -48,6 +55,7 @@ class CssDetailExtractor:
 
             element_selector = _TEXT_SUFFIX_RE.sub("", selector).strip()
             nodes = response.css(element_selector)
+
             parts: list[str] = []
             for node in nodes:
                 parts.extend(
@@ -55,10 +63,10 @@ class CssDetailExtractor:
                         ".//text()[not(ancestor::script) and not(ancestor::style)]"
                     ).getall()
                 )
+
             return self._clean_parts(parts)
+
         except (ValueError, TypeError):
-            # Invalid selectors should not crash the entire crawl. Validation
-            # of the config remains the primary place to catch this problem.
             return None
 
     def extract_contact_info(self, response: TextResponse) -> str | None:

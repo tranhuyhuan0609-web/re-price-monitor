@@ -6,7 +6,7 @@
             "server": "localhost",
             "port": 15432,
             "driver": "PostgreSQL",
-            "name": "project-bds-hh",
+            "name": "huyhuann",
             "database": "realestate_prod",
             "username": "huyhuan"
         }
