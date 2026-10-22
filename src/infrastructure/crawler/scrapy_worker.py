@@ -157,28 +157,28 @@ def _build_scrapy_settings(
         "COOKIES_ENABLED": True,
         "CLOSESPIDER_TIMEOUT": closespider_timeout,
         "ITEM_PIPELINES": ITEM_PIPELINES if publish_kafka else {},
-        # "DOWNLOAD_HANDLERS": {
-        #     "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-        #     "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-        # },
+        "DOWNLOAD_HANDLERS": {
+            "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+            "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
+        },
         "TWISTED_REACTOR": (
             "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
         ),
-        # "PLAYWRIGHT_BROWSER_TYPE": "chromium",
-        # "PLAYWRIGHT_LAUNCH_OPTIONS": {
-        #     "headless": browser_headless,
-        #     "args": ["--disable-blink-features=AutomationControlled"]
-        # },
-        # "PLAYWRIGHT_CONTEXTS": {
-        #     "default": {
-        #         "user_agent": selector_agent,
-        #         "locale": "vi-VN",
-        #         "timezone_id": "Asia/Ho_Chi_Minh",
-        #         "extra_http_headers": {
-        #             "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-        #         },
-        #     },
-        # },
+        "PLAYWRIGHT_BROWSER_TYPE": "chromium",
+        "PLAYWRIGHT_LAUNCH_OPTIONS": {
+            "headless": browser_headless,
+            "args": ["--disable-blink-features=AutomationControlled"]
+        },
+        "PLAYWRIGHT_CONTEXTS": {
+            "default": {
+                "user_agent": selector_agent,
+                "locale": "vi-VN",
+                "timezone_id": "Asia/Ho_Chi_Minh",
+                "extra_http_headers": {
+                    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+                },
+            },
+        },
         "TELNETCONSOLE_ENABLED": False,
         "LOG_LEVEL": "INFO",
     }
@@ -189,7 +189,6 @@ def _build_scrapy_settings(
         settings["KAFKA_BOOTSTRAP_SERVERS"] = bootstrap_servers
     if raw_topic:
         settings["KAFKA_RAW_TOPIC"] = raw_topic
-
     return settings
 
 

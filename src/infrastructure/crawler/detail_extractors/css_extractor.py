@@ -29,9 +29,29 @@ class CssDetailExtractor:
         cleaned: list[str] = []
         ignored_labels = {"Xem thêm", "Thu gọn"}
 
+       
+        _EMOJI_RE = re.compile(
+            "["
+            "\\U0001F600-\\U0001F64F",
+            "\\U0001F300-\\U0001F5FF",
+            "\\U0001F680-\\U0001F6FF",
+            "\\U0001F900-\\U0001F9FF",
+            "\\U0001FA70-\\U0001FAFF",
+            "\\U00002700-\\U000027BF", 
+            "\\U0001F1E6-\\U0001F1FF",
+            flags=re.UNICODE
+        )
+        
+        _TRUNCATED_RE = re.compile(r"(\w+)&…")
+
         for part in parts:
             text = unescape(part)
-            text = emoji.replace_emoji(text, replace="")
+            
+            text = _EMOJI_RE.sub("", text)
+            
+    
+            text = _TRUNCATED_RE.sub(r"\1", text)
+            
             text = _WHITESPACE_RE.sub(" ", text).strip()
 
             if not text or text in ignored_labels:
