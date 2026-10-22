@@ -7,10 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Protocol
 from urllib.parse import quote, urlsplit, urlunsplit
 from uuid import NAMESPACE_URL, uuid4, uuid5
-
-
-class RawEventBuildError(ValueError):
-    """Raised when a Raw Event violates its contract."""
+from src.application.parsers.text_utils import remove_emoji_and_clean
 
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _PERCENT_RE = re.compile(r"%[0-9a-fA-F]{2}")
@@ -18,6 +15,8 @@ _PATH_SAFE = "/%:@!$&'()*+,;=-._~"
 _QUERY_SAFE = "/?%:@!$&'()*+,;=-._~"
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
+class RawEventBuildError(ValueError):
+    """Raised when a Raw Event violates its contract."""
 
 def _clean(value: str | None, field_name: str) -> str | None:
     """Strip a string and convert blank values to None."""
@@ -27,7 +26,8 @@ def _clean(value: str | None, field_name: str) -> str | None:
         raise RawEventBuildError(
             f"{field_name} must be a string or None"
         )
-    return value.strip() or None
+    cleaned = remove_emoji_and_clean(value)
+    return cleaned
 
 
 def _require(value: str | None, field_name: str) -> str:

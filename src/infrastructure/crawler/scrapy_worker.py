@@ -13,6 +13,7 @@ from scrapy.settings import Settings
 from twisted.python.failure import Failure
 from src.domain.entities.crawler_config import CrawlerConfig
 from src.domain.entities.raw_event import RawEventBuilder
+from src.infrastructure.crawler.detail_extractors.factory import create_detail_extractor
 from src.infrastructure.crawler.spiders.real_estate_spider import RealEstateSpider
 from src.infrastructure.database.postgres_listing_detail_cache import (
     PostgresListingDetailCache,
@@ -281,7 +282,7 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     needs_detail_cache = bool(
         selector_dict.get("description")
         or selector_dict.get("contact_info")
-        or config.site_id.strip().lower() == "meeyland"
+        or create_detail_extractor(config.detail_extractors, selector_dict).required_fields
     )
     detail_cache: PostgresListingDetailCache | None = None
     if needs_detail_cache:
@@ -292,7 +293,7 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
             detail_cache.close()
             raise RuntimeError(
                 "The table crawler_listing_detail_cache is missing or unavailable. "
-                "Apply sql/001_create_listing_detail_cache.sql before running "
+                "Apply migration/postgres/create_listing_detail_cache.sql before running "
                 "the selective detail-crawl mode."
             ) from exc
 

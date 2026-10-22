@@ -1,11 +1,10 @@
 from __future__ import annotations
-
+from src.application.exceptions.transient_processing_error import TransientProcessingError
 import json
 import logging
 from confluent_kafka import Message
 from pymongo import MongoClient
-from pymongo.errors import PyMongoError
-
+from pymongo.errors import PyMongoError,ConnectionFailure, ExecutionTimeout
 logger = logging.getLogger(__name__)
 
 class MongoDLQEventWriter:
@@ -64,6 +63,9 @@ class MongoDLQEventWriter:
         except PyMongoError as exc:
             # Raise exception outward to ensure the Kafka consumer safely handles the error context and holds offsets
             raise RuntimeError(f"Failed to execute batch insertion of DLQ events into MongoDB: {exc}") from exc
+        except (ConnectionFailure, ExecutionTimeout) as conn_exc:
+            # Raise a transient processing error to signal the consumer to retry the batch later
+            raise TransientProcessingError(f"MongoDB is unavailable: {conn_exc}") from conn_exc
 
     def close(self) -> None:
         """Close the MongoDB connection pool gracefully."""

@@ -1,7 +1,8 @@
 from __future__ import annotations
 import logging
 import json
-from typing import Any, Protocol
+from time import sleep
+from typing import Any, Callable, Protocol
 from confluent_kafka import (
     Consumer,
     KafkaError,
@@ -9,6 +10,7 @@ from confluent_kafka import (
     Message,
     Producer,
 )
+from src.application.exceptions.transient_processing_error import TransientProcessingError
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,17 @@ class KafkaMessageConsumer:
         batch_size: int = 200,          
         dlq_bootstrap_servers: str | None = None,
         dlq_topic: str | None = None,
+        transient_retries: int = 3,
+        retry_backoff_seconds: float = 1.0,
+        dlq_flush_timeout: float = 10.0,
+        sleep: Callable[[float], None] = sleep,
     ) -> None:
+        if transient_retries < 0:
+            raise ValueError("transient_retries must be non-negative")
+        if retry_backoff_seconds < 0:
+            raise ValueError("retry_backoff_seconds must be non-negative")
+        if dlq_flush_timeout <= 0:
+            raise ValueError("dlq_flush_timeout must be positive")
         if not bootstrap_servers.strip():
             raise ValueError("bootstrap_servers must not be blank")
         if not group_id.strip():
@@ -57,8 +69,12 @@ class KafkaMessageConsumer:
         self._batch_size = batch_size
         self._handler = handler
         self._closed = False
-        self._running = True  
-        
+        self._topics = topics
+        self._dlq_delivery_error: Any = None
+        self._transient_retries = transient_retries
+        self._retry_backoff = retry_backoff_seconds
+        self._dlq_flush_timeout = dlq_flush_timeout
+        self._sleep = sleep
         self._dlq_topic = dlq_topic.strip() if dlq_topic else None
         self._dlq_producer = (
             Producer({"bootstrap.servers": dlq_bootstrap_servers.strip()})
@@ -79,6 +95,99 @@ class KafkaMessageConsumer:
         )
         self._consumer.subscribe([topic.strip() for topic in topics])
 
+   
+    def _handle(self, messages: list[Message]) -> None:
+        """Run the handler, retrying temporary infrastructure failures.
+
+        A TransientProcessingError means the database or broker is down, not
+        that the message is bad. After the retries are exhausted it is
+        re-raised so the caller neither dead-letters nor commits the batch.
+        """
+        attempt = 0
+        while True:
+            try:
+                self._handler.handle_batch(messages)
+                return
+            except TransientProcessingError as exc:
+                attempt += 1
+                if attempt > self._transient_retries:
+                    raise
+                delay = self._retry_backoff * (2 ** (attempt - 1))
+                logger.warning(
+                    "Temporary failure (attempt %d/%d), retrying in %.1fs: %s",
+                    attempt, self._transient_retries, delay, exc,
+                )
+                self._sleep(delay)
+
+    def _dispatch_batch(self, batch: list[Message]) -> None:
+        """Executes handler batch processing and manages atomic offset commits.
+
+        Temporary infrastructure failures propagate out of ``run`` without a
+        commit and without a DLQ publish; the process exits, the orchestrator
+        restarts it and Kafka redelivers the uncommitted messages.
+        """
+        try:
+            self._handle(batch)
+        except TransientProcessingError:
+            logger.error("Infrastructure unavailable; stopping without committing offsets.")
+            raise
+        except Exception:
+            logger.warning("Bulk batch failed. Falling back to row-by-row recovery strategy...")
+            self._recover_row_by_row(batch)
+            return
+
+        self._consumer.commit(message=batch[-1], asynchronous=False)
+
+    def _recover_row_by_row(self, batch: list[Message]) -> None:
+        """Isolate poison messages: process singly, dead-letter the ones that fail."""
+        for message in batch:
+            try:
+                self._handle([message])
+            except TransientProcessingError:
+                logger.error("Infrastructure unavailable; stopping without committing offsets.")
+                raise
+            except Exception as row_exc:
+                logger.exception(
+                    "Kafka message processing failed persistently topic=%s partition=%s offset=%s",
+                    message.topic(), message.partition(), message.offset(),
+                )
+                if self._dlq_producer is None or self._dlq_topic is None:
+                    raise KafkaConsumerError("Persistent message failure occurred but DLQ is not configured") from row_exc
+
+                # The DLQ copy must be durably delivered before the offset moves on.
+                self._publish_dlq(message, row_exc)
+
+            self._consumer.commit(message=message, asynchronous=False)
+
+    def _on_dlq_delivery(self, error: Any, message: Any) -> None:
+        if error is not None:
+            self._dlq_delivery_error = error
+
+    def _publish_dlq(self, message: Message, error: Exception) -> None:
+        """Publish the failed message to the DLQ and wait until it is delivered."""
+        payload = {
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "source_topic": message.topic(),
+            "source_partition": message.partition(),
+            "source_offset": message.offset(),
+            "value": (message.value().decode("utf-8", errors="replace") if message.value() is not None else None),
+        }
+        self._dlq_delivery_error = None
+        try:
+            self._dlq_producer.produce(
+                topic=self._dlq_topic,
+                key=message.key(),
+                value=json.dumps(payload, ensure_ascii=True),
+                on_delivery=self._on_dlq_delivery,
+            )
+            remaining = self._dlq_producer.flush(self._dlq_flush_timeout)
+        except (KafkaException, BufferError) as exc:
+            raise KafkaConsumerError("Kafka DLQ publish failed") from exc
+        if remaining or self._dlq_delivery_error is not None:
+            raise KafkaConsumerError(
+                f"Kafka DLQ delivery failed (undelivered={remaining}, error={self._dlq_delivery_error})"
+            )
     def run(self, *, max_messages: int | None = None) -> int:
         """Processes messages in batches until stopped or max_messages thresholds are fulfilled."""
         if max_messages is not None and max_messages <= 0:
@@ -119,51 +228,6 @@ class KafkaMessageConsumer:
             processed += len(msg_buffer)
 
         return processed
-
-    def _dispatch_batch(self, batch: list[Message]) -> None:
-        """Executes handler batch processing and manages atomic offset commits."""
-        try:
-            self._handler.handle_batch(batch)
-            self._consumer.commit(message=batch[-1], asynchronous=False)
-        except Exception as exc:
-            logger.warning("Bulk batch insert failed. Falling back to row-by-row recovery strategy...")
-            
-            # Fallback Recovery: Fall back to executing single-item workflows to secure poison pills
-            for message in batch:
-                try:
-                    self._handler.handle_batch([message])
-                    self._consumer.commit(message=message, asynchronous=False)
-                except Exception as row_exc:
-                    logger.exception(
-                        "Kafka message processing failed persistently topic=%s partition=%s offset=%s",
-                        message.topic(), message.partition(), message.offset(),
-                    )
-                    if self._dlq_producer is None or self._dlq_topic is None:
-                        raise KafkaConsumerError("Persistent message failure occurred but DLQ is not configured") from row_exc
-                    
-                    # Push single corrupt item to DLQ and advance the commit offset to keep partition alive
-                    self._publish_dlq(message, row_exc)
-                    self._consumer.commit(message=message, asynchronous=False)
-
-    def _publish_dlq(self, message: Message, error: Exception) -> None:
-        """Asynchronously dispatches execution context errors to the destination DLQ pipeline."""
-        payload = {
-            "error_type": type(error).__name__,
-            "error_message": str(error),
-            "source_topic": message.topic(),
-            "source_partition": message.partition(),
-            "source_offset": message.offset(),
-            "value": (message.value().decode("utf-8", errors="replace") if message.value() is not None else None),
-        }
-        try:
-            self._dlq_producer.produce(
-                topic=self._dlq_topic,
-                key=message.key(),
-                value=json.dumps(payload, ensure_ascii=True),
-            )
-        except KafkaException as exc:
-            raise KafkaConsumerError("Kafka DLQ publish failed") from exc
-
     def close(self) -> None:
         if self._closed:
             return

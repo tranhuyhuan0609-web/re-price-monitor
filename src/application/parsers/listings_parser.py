@@ -112,8 +112,6 @@ class ListingParser:
         )
         self._flag_fields = tuple(f for f in self.FLAG_FIELDS if f in cleaned)
 
-    # ------------------------------------------------------------------ init helpers
-
     @staticmethod
     def _validate_selector_shapes(selectors: dict[str, str]) -> None:
         if "::" in selectors["item"]:
@@ -156,8 +154,6 @@ class ListingParser:
 
         return frozenset(domains)
 
-    # ------------------------------------------------------------------ extraction
-
     @staticmethod
     def _clean(value: str) -> str:
         return " ".join(value.split())
@@ -194,8 +190,6 @@ class ListingParser:
                 values[name] = self._first_value(item, selector)
         return values
 
-    # ------------------------------------------------------------------ URL handling
-
     def _is_allowed_host(self, host: str) -> bool:
         host = host.lower().rstrip(".")
         return host in self.allowed_domains or host.endswith(self._domain_suffixes)
@@ -225,8 +219,6 @@ class ListingParser:
 
         # Fragments are browser positions, not distinct listings.
         return parsed._replace(fragment="").geturl()
-
-    # ------------------------------------------------------------------ parsing
 
     def _build(
         self,

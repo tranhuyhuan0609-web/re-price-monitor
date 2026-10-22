@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from datetime import datetime, timezone
+from src.application.parsers.text_utils import remove_emoji_and_clean
 from threading import RLock
 from typing import Any
 import psycopg
@@ -129,8 +129,8 @@ class PostgresListingDetailCache:
         fetch_succeeded: bool,
     ) -> None:
         """Persist the latest attempt, preserving known values on empty results."""
-        clean_description = description.strip() if description else None
-        clean_contact = contact_info.strip() if contact_info else None
+        clean_description = remove_emoji_and_clean(description) if description else None
+        clean_contact = remove_emoji_and_clean(contact_info) if contact_info else None
 
         with self._lock:
             connection = self._get_connection()

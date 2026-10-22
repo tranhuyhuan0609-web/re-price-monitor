@@ -7,9 +7,9 @@ from pymongo.errors import PyMongoError
 from src.infrastructure.messaging.raw_event_envelope import (
     deserialize_raw_event_envelope,
 )
+from pymongo.errors import ConnectionFailure, ExecutionTimeout,PyMongoError
+from src.application.exceptions.transient_processing_error import TransientProcessingError
 logger = logging.getLogger(__name__)
-
-
 class MongoRawEventWriter:
     """Persists raw envelopes in batches using raw_event_id as an idempotency key."""
 
@@ -82,7 +82,9 @@ class MongoRawEventWriter:
         except PyMongoError as exc:
             # Raise runtime exception to halt immediate offset commits upon cluster dropouts
             raise RuntimeError(f"Failed to execute batch bulk_write on MongoDB: {exc}") from exc
-
+        except (ConnectionFailure, ExecutionTimeout) as conn_exc:
+            # Raise a transient processing error to signal the consumer to retry the batch later
+            raise TransientProcessingError(f"MongoDB is unavailable: {conn_exc}") from conn_exc
     def close(self) -> None:
         """Close the MongoDB connection pool gracefully."""
         self._client.close()

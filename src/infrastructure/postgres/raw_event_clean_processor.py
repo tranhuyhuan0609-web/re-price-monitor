@@ -1,5 +1,6 @@
 from __future__ import annotations
-import json
+from psycopg import IntegrityError, OperationalError
+from src.application.exceptions.transient_processing_error import TransientProcessingError   
 import logging
 import re
 from datetime import datetime, timezone
@@ -144,7 +145,7 @@ class RawEventCleanProcessor:
             
             description = payload.get("description")
             quality_flags = list(payload.get("quality_flags") or [])
-
+            contact_info = str(payload.get("contact_info")) if payload.get("contact_info") is not None else None
             # Pack mapped data into tuple structures aligned with SQL schemas
             evt_row = (envelope["raw_event_id"], run_started_at)
             
@@ -159,7 +160,7 @@ class RawEventCleanProcessor:
                 create_url_hash(url),
                 title,
                 description,
-                Jsonb(payload.get("contact_info")) if payload.get("contact_info") is not None else None,
+                contact_info,
                 price_status,
                 parsed_price.basis,
                 currency,
@@ -175,9 +176,12 @@ class RawEventCleanProcessor:
             lc_row = (listing_key, crawled_at)
             return evt_row, obs_row, lc_row
 
-        except Exception as e:
-            logger.error(f"Application parsing error encountered: {e}")
-            return None
+        except Exception as exc:
+            logger.warning(
+                "Rejecting raw event topic=%s partition=%s offset=%s: %s",
+                message.topic(), message.partition(), message.offset(), exc,
+            )
+            raise TransientProcessingError("Failed to process raw event") from exc
 
     def _execute_db_batch(self, evts: list, obss: list, lcs: list) -> None:
         """Executes bulk inserts across 3 tables inside a single atomic transaction block."""
@@ -237,14 +241,15 @@ class RawEventCleanProcessor:
         evts, obss, lcs = [], [], []
         
         # Phase 1: Transform data records sequentially using memory tasks
-        for msg in messages:
-            parsed = self._extract_and_transform(msg)
-            if parsed:
-                e, o, l = parsed
-                evts.append(e)
-                obss.append(o)
-                lcs.append(l)
-
+        try:
+            for msg in messages:
+                evt, obs, lc = self._extract_and_transform(msg)
+                evts.append(evt)
+                obss.append(obs)
+                lcs.append(lc)
+        
         # Phase 2: Execute efficient bulk relational operations into PostgreSQL
-        if evts:
             self._execute_db_batch(evts, obss, lcs)
+            logger.info("Successfully clean-inserted %d events into PostgreSQL.", len(evts))
+        except (OperationalError, IntegrityError) as db_exc:
+            raise TransientProcessingError(f"PostgreSQL is unavailable or failed to process batch: {db_exc}") from db_exc

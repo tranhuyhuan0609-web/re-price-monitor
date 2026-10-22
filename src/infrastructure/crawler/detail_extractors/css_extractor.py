@@ -2,13 +2,16 @@ from __future__ import annotations
 import re
 from html import unescape
 from typing import Mapping
-import emoji
+from src.application.parsers.text_utils import remove_emoji_and_clean
 from scrapy.http import TextResponse
 
 
 _TEXT_SUFFIX_RE = re.compile(r"\s*::text\s*$")
 _WHITESPACE_RE = re.compile(r"[ \t]+")
-
+_EMOJI_RE = re.compile("[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF"
+    "\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U0001FA70-\U0001FAFF"
+    "\U00002700-\U000027BF\U0001F1E6-\U0001F1FF]+")
+_TRUNCATED_RE = re.compile(r"(\w+)&…")
 
 class CssDetailExtractor:
     """Extract and clean detail fields using configured selectors."""
@@ -29,34 +32,18 @@ class CssDetailExtractor:
         cleaned: list[str] = []
         ignored_labels = {"Xem thêm", "Thu gọn"}
 
-       
-        _EMOJI_RE = re.compile(
-            "["
-            "\\U0001F600-\\U0001F64F",
-            "\\U0001F300-\\U0001F5FF",
-            "\\U0001F680-\\U0001F6FF",
-            "\\U0001F900-\\U0001F9FF",
-            "\\U0001FA70-\\U0001FAFF",
-            "\\U00002700-\\U000027BF", 
-            "\\U0001F1E6-\\U0001F1FF",
-            flags=re.UNICODE
-        )
-        
-        _TRUNCATED_RE = re.compile(r"(\w+)&…")
 
         for part in parts:
             text = unescape(part)
+            text = remove_emoji_and_clean(text)
+            if not text:
+                continue
             
-            text = _EMOJI_RE.sub("", text)
-            
-    
             text = _TRUNCATED_RE.sub(r"\1", text)
-            
             text = _WHITESPACE_RE.sub(" ", text).strip()
 
-            if not text or text in ignored_labels:
-                continue
-
+            if text in ignored_labels:
+                 continue
             if not cleaned or cleaned[-1] != text:
                 cleaned.append(text)
 
