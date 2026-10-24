@@ -5,8 +5,8 @@ from confluent_kafka import KafkaException, Producer
 from src.domain.entities.raw_event import RawEvent
 from src.infrastructure.messaging.raw_event_envelope import (
     serialize_raw_event,
+    build_listing_key,
 )
-
 logger = logging.getLogger(__name__)
 
 
@@ -72,7 +72,7 @@ class KafkaRawEventProducer:
         try:
             self._producer.produce(
                 topic=self._topic,
-                key=event.raw_event_id.encode("utf-8"),
+                key=build_listing_key(event.source, event.url).encode("utf-8"),
                 value=serialize_raw_event(event),
                 on_delivery=self._delivery_callback,
             )

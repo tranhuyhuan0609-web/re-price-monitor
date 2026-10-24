@@ -20,7 +20,70 @@ from src.infrastructure.postgres.exchange_rate_provider import (
 logger = logging.getLogger(__name__)
 PROCESSING_VERSION = 1
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
+_OBS_CRAWL_RUN_ID = 1
+_OBS_RUN_STARTED_AT = 2
+_OBS_CRAWLED_AT = 3
+_OBS_LISTING_KEY = 4
+_OBS_PRICE_FIELDS = slice(11, 16)  # status, basis, currency, amount, price_vnd
 
+_INSERT_OBSERVATION_SQL = """
+    INSERT INTO listing_observation (
+        raw_event_id, crawl_run_id, run_started_at, crawled_at,
+        listing_key, source, url, url_hash,
+        title, transaction_type, description, contact_info, price_status, price_basis,
+        currency, amount, price_vnd,
+        price_per_m2, area_m2,
+        address_raw, quality_flags, processing_version
+    ) VALUES (
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sale',
+        %s, %s, %s, %s, %s, %s, %s,
+        %s, %s,
+        %s, %s, %s
+    )
+    ON CONFLICT (run_started_at, raw_event_id) DO NOTHING
+"""
+
+_UPSERT_LIFECYCLE_SQL = """
+    INSERT INTO listing_lifecycle (
+        listing_key, status, missing_count, last_seen_at, first_seen_at,
+        price_status, price_basis, currency, amount, price_vnd,
+        price_changed_at
+    ) VALUES (%s, 'active', 0, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (listing_key) DO UPDATE SET
+        status = 'active',
+        missing_count = 0,
+        ended_at = NULL,
+        last_seen_at = GREATEST(
+            listing_lifecycle.last_seen_at, EXCLUDED.last_seen_at
+        ),
+        first_seen_at = COALESCE(
+            listing_lifecycle.first_seen_at, EXCLUDED.first_seen_at
+        ),
+        price_status = EXCLUDED.price_status,
+        price_basis = EXCLUDED.price_basis,
+        currency = EXCLUDED.currency,
+        amount = EXCLUDED.amount,
+        price_vnd = EXCLUDED.price_vnd,
+        price_changed_at = EXCLUDED.price_changed_at,
+        updated_at = now()
+"""
+
+
+@dataclass(slots=True)
+class ListingState:
+    status: str
+    last_seen_at: datetime
+    first_seen_at: datetime | None
+    price_changed_at: datetime | None
+    signature: tuple[Any, ...]  # (price_status, price_basis, currency, amount, price_vnd)
+
+
+@dataclass(slots=True)
+class BatchStats:
+    stored: int = 0
+    unchanged: int = 0
+    stale: int = 0
+    reactivated: int = 0
 
 @dataclass(frozen=True, slots=True)
 class ParsedPrice:
@@ -183,73 +246,166 @@ class RawEventCleanProcessor:
             )
             raise TransientProcessingError("Failed to process raw event") from exc
 
-    def _execute_db_batch(self, evts: list, obss: list, lcs: list) -> None:
-        """Executes bulk inserts across 3 tables inside a single atomic transaction block."""
+    
+    @staticmethod
+    def _load_states(cur: Any, listing_keys: list[str]) -> dict[str, ListingState]:
+        cur.execute(
+            """
+            SELECT listing_key, status, last_seen_at, first_seen_at,
+                   price_changed_at, price_status, price_basis, currency,
+                   amount, price_vnd
+            FROM listing_lifecycle
+            WHERE listing_key = ANY(%s)
+            ORDER BY listing_key
+            FOR UPDATE
+            """,
+            (listing_keys,),
+        )
+        return {
+            row[0]: ListingState(
+                status=row[1],
+                last_seen_at=row[2],
+                first_seen_at=row[3],
+                price_changed_at=row[4],
+                signature=tuple(row[5:10]),
+            )
+            for row in cur.fetchall()
+        }
+
+    @staticmethod
+    def _plan_batch(
+        rows: list[tuple[tuple, tuple, tuple]],
+        states: dict[str, ListingState],
+    ) -> tuple[list, list, list, dict[str, ListingState], BatchStats]:
+        stats = BatchStats()
+        events: list[tuple] = []
+        observations: list[tuple] = []
+        status_events: list[tuple] = []
+        working = dict(states)
+        touched: dict[str, ListingState] = {}
+
+        ordered = sorted(
+            rows,
+            key=lambda row: (row[1][_OBS_LISTING_KEY], row[1][_OBS_CRAWLED_AT]),
+        )
+        for evt_row, obs_row, _ in ordered:
+            key = obs_row[_OBS_LISTING_KEY]
+            crawled_at = obs_row[_OBS_CRAWLED_AT]
+            signature = tuple(obs_row[_OBS_PRICE_FIELDS])
+            state = working.get(key)
+
+            if state is not None and crawled_at < state.last_seen_at:
+                stats.stale += 1
+                continue
+
+            changed = state is None or state.signature != signature
+            if changed:
+                raw_event_id = evt_row[0]
+                run_started_at = obs_row[_OBS_RUN_STARTED_AT]
+                processed_at = evt_row[1]
+                events.append((raw_event_id, run_started_at, processed_at))
+                observations.append(obs_row)
+                stats.stored += 1
+            else:
+                stats.unchanged += 1
+
+            if state is not None and state.status == "inactive":
+                status_events.append(
+                    (key, "active", crawled_at, obs_row[_OBS_CRAWL_RUN_ID])
+                )
+                stats.reactivated += 1
+
+            new_state = ListingState(
+                status="active",
+                last_seen_at=crawled_at,
+                first_seen_at=(
+                    state.first_seen_at
+                    if state is not None and state.first_seen_at is not None
+                    else crawled_at
+                ),
+                price_changed_at=(
+                    crawled_at if changed else state.price_changed_at
+                ),
+                signature=signature if changed else state.signature,
+            )
+            working[key] = new_state
+            touched[key] = new_state
+
+        return events, observations, status_events, touched, stats
+
+    def _execute_db_batch(
+        self,
+        rows: list[tuple[tuple, tuple, tuple]],
+    ) -> BatchStats:
+        listing_keys = sorted({row[1][_OBS_LISTING_KEY] for row in rows})
+
         with self._connection.transaction():
             with self._connection.cursor() as cur:
-                if evts:
+                states = self._load_states(cur, listing_keys)
+                (
+                    events,
+                    observations,
+                    status_events,
+                    touched,
+                    stats,
+                ) = self._plan_batch(rows, states)
+
+                if events:
                     cur.executemany(
                         """
-                        INSERT INTO processed_raw_events
-                            (raw_event_id, run_started_at)
-                        VALUES (%s, %s)
+                        INSERT INTO processed_raw_events (raw_event_id, run_started_at, processed_at)
+                        VALUES (%s, %s, %s)
                         ON CONFLICT (raw_event_id) DO NOTHING
                         """,
-                        evts
+                        events,
                     )
-                if obss:
+                if observations:
+                    cur.executemany(_INSERT_OBSERVATION_SQL, observations)
+                if status_events:
                     cur.executemany(
                         """
-                        INSERT INTO listing_observation (
-                            raw_event_id, crawl_run_id, run_started_at, crawled_at,
-                            listing_key, source, url, url_hash,
-                            title, transaction_type, description, contact_info, price_status, price_basis,
-                            currency, amount, price_vnd,
-                            price_per_m2, area_m2,
-                            address_raw, quality_flags, processing_version
-                        ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sale',
-                            %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s,
-                            %s, %s, %s
-                        )
-                        ON CONFLICT (run_started_at, raw_event_id) DO NOTHING
+                        INSERT INTO listing_status_event
+                            (listing_key, status, occurred_at, crawl_run_id)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT DO NOTHING
                         """,
-                        obss
+                        status_events,
                     )
-                if lcs:
+                if touched:
                     cur.executemany(
-                        """
-                        INSERT INTO listing_lifecycle
-                            (listing_key, status, missing_count, last_seen_at)
-                        VALUES (%s, 'active', 0, %s)
-                        ON CONFLICT (listing_key) DO UPDATE SET
-                            status = 'active',
-                            missing_count = 0,
-                            last_seen_at = EXCLUDED.last_seen_at,
-                            ended_at = NULL,
-                            updated_at = now()
-                        """,
-                        lcs
+                        _UPSERT_LIFECYCLE_SQL,
+                        [
+                            (
+                                key,
+                                state.last_seen_at,
+                                state.first_seen_at,
+                                *state.signature,
+                                state.price_changed_at,
+                            )
+                            for key, state in sorted(touched.items())
+                        ],
                     )
+        return stats
 
     def handle_batch(self, messages: list[Any]) -> None:
         """Main entry point to process a bulk list of incoming Kafka messages."""
         if not messages:
             return
 
-        evts, obss, lcs = [], [], []
+        rows: list[tuple[tuple, tuple, tuple]] = []
         
-        # Phase 1: Transform data records sequentially using memory tasks
         try:
             for msg in messages:
-                evt, obs, lc = self._extract_and_transform(msg)
-                evts.append(evt)
-                obss.append(obs)
-                lcs.append(lc)
-        
-        # Phase 2: Execute efficient bulk relational operations into PostgreSQL
-            self._execute_db_batch(evts, obss, lcs)
-            logger.info("Successfully clean-inserted %d events into PostgreSQL.", len(evts))
+                rows.append(self._extract_and_transform(msg))
+            stats = self._execute_db_batch(rows)
+            logger.info("Successfully clean-inserted %d events into PostgreSQL.", len(rows))
         except (OperationalError, IntegrityError) as db_exc:
             raise TransientProcessingError(f"PostgreSQL is unavailable or failed to process batch: {db_exc}") from db_exc
+        logger.info(
+            "Processed %d events: stored=%d unchanged=%d stale=%d reactivated=%d",
+            len(messages),
+            stats.stored,
+            stats.unchanged,
+            stats.stale,
+            stats.reactivated,
+        )

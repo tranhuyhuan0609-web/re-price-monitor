@@ -79,12 +79,12 @@ class MongoRawEventWriter:
             # ordered=False executes operations in parallel for high throughput performance
             self._collection.bulk_write(bulk_operations, ordered=False)
             logger.info(f"Successfully bulk-upserted {len(bulk_operations)} raw events into MongoDB.")
-        except PyMongoError as exc:
-            # Raise runtime exception to halt immediate offset commits upon cluster dropouts
-            raise RuntimeError(f"Failed to execute batch bulk_write on MongoDB: {exc}") from exc
         except (ConnectionFailure, ExecutionTimeout) as conn_exc:
             # Raise a transient processing error to signal the consumer to retry the batch later
             raise TransientProcessingError(f"MongoDB is unavailable: {conn_exc}") from conn_exc
+        except PyMongoError as exc:
+                    # Raise runtime exception to halt immediate offset commits upon cluster dropouts
+                    raise RuntimeError(f"Failed to execute batch bulk_write on MongoDB: {exc}") from exc
     def close(self) -> None:
         """Close the MongoDB connection pool gracefully."""
         self._client.close()

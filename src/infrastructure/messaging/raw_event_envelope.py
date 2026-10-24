@@ -8,7 +8,9 @@ from src.application.parsers.create_url_hash import create_url_hash
 RAW_EVENT_TYPE = "listing.raw"
 RAW_EVENT_SCHEMA_VERSION = 1
 
-
+def build_listing_key(source: str, url: str) -> str:
+    """Build a unique listing key for a given source and URL."""
+    return f"{source}:url:{create_url_hash(url)}"
 def _isoformat(value: datetime) -> str:
     normalized = value.astimezone(timezone.utc)
     return normalized.isoformat().replace("+00:00", "Z")
@@ -38,9 +40,7 @@ def build_raw_event_envelope(event: RawEvent) -> dict[str, Any]:
         "raw_event_id": event.raw_event_id,
         "crawl_run_id": event.crawl_run_id,
         "source": event.source,
-        "listing_key": (
-             f"{event.source}:url:{create_url_hash(event.url)}"
-        ),
+        "listing_key": build_listing_key(event.source, event.url),
         "parser_version": event.parser_version,
         "crawled_at": _isoformat(event.crawled_at),
         "payload": payload,

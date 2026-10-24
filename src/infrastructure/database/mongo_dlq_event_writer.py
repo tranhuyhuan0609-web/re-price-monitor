@@ -60,12 +60,12 @@ class MongoDLQEventWriter:
             # ordered=False allows parallel insertions and prevents a single bad document from halting the batch
             self._collection.insert_many(documents_to_insert, ordered=False)
             logger.info(f"Successfully flushed a bulk batch of {len(documents_to_insert)} error records to MongoDB.")
-        except PyMongoError as exc:
-            # Raise exception outward to ensure the Kafka consumer safely handles the error context and holds offsets
-            raise RuntimeError(f"Failed to execute batch insertion of DLQ events into MongoDB: {exc}") from exc
         except (ConnectionFailure, ExecutionTimeout) as conn_exc:
             # Raise a transient processing error to signal the consumer to retry the batch later
             raise TransientProcessingError(f"MongoDB is unavailable: {conn_exc}") from conn_exc
+        except PyMongoError as exc:
+                    # Raise exception outward to ensure the Kafka consumer safely handles the error context and holds offsets
+                    raise RuntimeError(f"Failed to execute batch insertion of DLQ events into MongoDB: {exc}") from exc
 
     def close(self) -> None:
         """Close the MongoDB connection pool gracefully."""

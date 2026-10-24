@@ -8,9 +8,6 @@ from scrapy.http import TextResponse
 
 _TEXT_SUFFIX_RE = re.compile(r"\s*::text\s*$")
 _WHITESPACE_RE = re.compile(r"[ \t]+")
-_EMOJI_RE = re.compile("[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF"
-    "\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF\U0001FA70-\U0001FAFF"
-    "\U00002700-\U000027BF\U0001F1E6-\U0001F1FF]+")
 _TRUNCATED_RE = re.compile(r"(\w+)&…")
 
 class CssDetailExtractor:

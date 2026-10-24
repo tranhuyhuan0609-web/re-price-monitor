@@ -8,7 +8,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G # Khống chế RAM cho Kafka Broker
+          memory: 1G 
     environment:
       CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
       KAFKA_NODE_ID: 1
@@ -81,10 +81,16 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:?MONGO_USER is required}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?MONGO_PASSWORD is required}
+      MONGO_LOG_LOGCOMPONENTVERBOSITY_DEFAULT: 0
     volumes:
       - mongo_data:/data/db
     healthcheck:
-      test: ["CMD-SHELL", "mongosh --port 27017 --eval 'db.adminCommand({ping:1})' --quiet | grep -q 'ok: 1' || exit 1"]
+      test: >
+        mongosh --port 27017 
+        -u "$$MONGO_INITDB_ROOT_USERNAME" 
+        -p "$$MONGO_INITDB_ROOT_PASSWORD" 
+        --eval 'db.adminCommand({ping:1})' --quiet | grep -q 'ok: 1' || exit 1
+
       interval: 10s
       timeout: 5s
       retries: 5
@@ -119,6 +125,7 @@ services:
       - ./migration/postgres/create_silver_schema_v1.sql:/docker-entrypoint-initdb.d/01-silver-schema.sql:ro
       - ./migration/postgres/create_crawl_runs.sql:/docker-entrypoint-initdb.d/02-crawl-runs.sql:ro
       - ./migration/postgres/create_crawler_config.sql:/docker-entrypoint-initdb.d/03-crawler-config.sql:ro
+      - ./migration/postgres/upgrade_listing_lifecycle_v2.sql:/docker-entrypoint-initdb.d/04-listing-lifecycle-v2.sql:ro
       - ./migration/postgres/create_exchange_rates.sql:/docker-entrypoint-initdb.d/20-exchange-rates.sql:ro
     healthcheck:
       # Tối ưu hóa lệnh kiểm tra trạng thái bằng pg_isready kết hợp tài khoản mặc định
@@ -275,6 +282,42 @@ services:
       KAFKA_GROUP_CLEAN_PROCESSOR: ${KAFKA_GROUP_CLEAN_PROCESSOR}
       PARTITION_MONTHS_AHEAD: ${PARTITION_MONTHS_AHEAD:-2}
       PARTITION_CHECK_INTERVAL_SECONDS: ${PARTITION_CHECK_INTERVAL_SECONDS:-21600}
+    depends_on:
+      postgres:
+        condition: service_healthy
+  listing-lifecycle-updater:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - python
+      - -m
+      - src.infrastructure.postgres.listing_lifecycle_updater
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 120M
+    environment:
+      ENV: ${ENV}
+      MONGO_HOST: mongo
+      MONGO_PORT: 27017
+      MONGO_USER: ${MONGO_USER:?MONGO_USER is required}
+      MONGO_PASSWORD: ${MONGO_PASSWORD:?MONGO_PASSWORD is required}
+      MONGO_DB: ${MONGO_DB}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_RAW_TOPIC: ${KAFKA_RAW_TOPIC}
+      KAFKA_DLQ_TOPIC: ${KAFKA_DLQ_TOPIC}
+      KAFKA_GROUP_RAW_WRITER: ${KAFKA_GROUP_RAW_WRITER}
+      KAFKA_GROUP_CLEAN_PROCESSOR: ${KAFKA_GROUP_CLEAN_PROCESSOR}
+      # Cấu hình thời gian quét và thời gian chờ lấy từ file .env (nếu không có sẽ lấy giá trị mặc định)
+      LIFECYCLE_CHECK_INTERVAL_SECONDS: ${LIFECYCLE_CHECK_INTERVAL_SECONDS:-300}
+      LIFECYCLE_GRACE_SECONDS: ${LIFECYCLE_GRACE_SECONDS:-600}
     depends_on:
       postgres:
         condition: service_healthy

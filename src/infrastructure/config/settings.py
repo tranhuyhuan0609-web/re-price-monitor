@@ -63,8 +63,11 @@ class Settings(BaseSettings):
         ge=60,
         le=86400,
     )
+
     PARTITION_MONTHS_AHEAD: int = Field(default=2, ge=1, le=12)
     PARTITION_CHECK_INTERVAL_SECONDS: int = Field(default=21600, ge=60, le=86400)
+    LIFECYCLE_CHECK_INTERVAL_SECONDS: int = Field(default=3600, ge=60, le=86400)
+    LIFECYCLE_GRACE_SECONDS: int = Field(default=3600, ge=60, le=86400)
     
     # Application logging
     CRAWLER_LOG_LEVEL: Literal[
