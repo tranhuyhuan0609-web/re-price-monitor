@@ -9,6 +9,7 @@ from confluent_kafka import (
     KafkaException,
     Message,
     Producer,
+    TopicPartition
 )
 from src.application.exceptions.transient_processing_error import TransientProcessingError
 
@@ -136,7 +137,27 @@ class KafkaMessageConsumer:
             self._recover_row_by_row(batch)
             return
 
-        self._consumer.commit(message=batch[-1], asynchronous=False)
+        self._commit_batch(batch)
+
+    def _commit_batch(self, batch: list[Message]) -> None:
+        """Commit the next offset of every partition present in the batch.
+
+        A batch can span several partitions; committing only the last
+        message would leave every other partition's offset uncommitted.
+        """
+        highest: dict[tuple[str, int], int] = {}
+        
+        for message in batch:
+            key = (message.topic(), message.partition())
+            if message.offset() > highest.get(key, -1):
+                highest[key] = message.offset()
+       
+        offsets = [
+            TopicPartition(topic, partition, offset + 1)
+            for (topic, partition), offset in highest.items()
+        ]
+        
+        self._consumer.commit(offsets=offsets, asynchronous=False)
 
     def _recover_row_by_row(self, batch: list[Message]) -> None:
         """Isolate poison messages: process singly, dead-letter the ones that fail."""

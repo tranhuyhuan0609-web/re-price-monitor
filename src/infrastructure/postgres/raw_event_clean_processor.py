@@ -8,7 +8,13 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from dataclasses import dataclass
 from psycopg import Connection
-from psycopg.types.json import Jsonb
+from src.application.parsers.price_parser import (
+    ParsedPrice,
+    detect_transaction_type,
+    parse_area_m2,
+    parse_price,
+    to_monthly_rent,
+)
 from src.application.parsers.create_url_hash import create_url_hash
 from src.infrastructure.messaging.raw_event_envelope import (
     deserialize_raw_event_envelope,
@@ -19,7 +25,6 @@ from src.infrastructure.postgres.exchange_rate_provider import (
 
 logger = logging.getLogger(__name__)
 PROCESSING_VERSION = 1
-_NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)?")
 _OBS_CRAWL_RUN_ID = 1
 _OBS_RUN_STARTED_AT = 2
 _OBS_CRAWLED_AT = 3
@@ -30,15 +35,15 @@ _INSERT_OBSERVATION_SQL = """
     INSERT INTO listing_observation (
         raw_event_id, crawl_run_id, run_started_at, crawled_at,
         listing_key, source, url, url_hash,
-        title, transaction_type, description, contact_info, price_status, price_basis,
+        title, description, contact_info, price_status, price_basis,
         currency, amount, price_vnd,
         price_per_m2, area_m2,
-        address_raw, quality_flags, processing_version
+        address_raw, quality_flags, processing_version, transaction_type
     ) VALUES (
-        %s, %s, %s, %s, %s, %s, %s, %s, %s, 'sale',
+        %s, %s, %s, %s, %s, %s, %s, %s, %s,
         %s, %s, %s, %s, %s, %s, %s,
         %s, %s,
-        %s, %s, %s
+        %s, %s, %s, %s
     )
     ON CONFLICT (run_started_at, raw_event_id) DO NOTHING
 """
@@ -85,64 +90,6 @@ class BatchStats:
     stale: int = 0
     reactivated: int = 0
 
-@dataclass(frozen=True, slots=True)
-class ParsedPrice:
-    amount: Decimal | None
-    currency: str | None
-    status: str
-    basis: str = "total"
-
-
-def _parse_decimal(value: str) -> Decimal:
-    number = _NUMBER_RE.search(value.lower().replace(" ", ""))
-    if number is None:
-        raise ValueError(f"cannot parse numeric value: {value!r}")
-    token = number.group().replace(",", ".")
-    return Decimal(token)
-
-
-def _parse_usd_number(value: str) -> Decimal:
-    match = re.search(r"\d[\d,]*(?:\.\d+)?", value)
-    if match is None:
-        raise ValueError(f"cannot parse numeric value: {value!r}")
-    return Decimal(match.group().replace(",", ""))
-
-
-def parse_area_m2(value: str | None) -> Decimal | None:
-    if not value:
-        return None
-    return _parse_decimal(value).quantize(Decimal("0.01"))
-
-
-def parse_price_vnd(value: str | None) -> Decimal | None:
-    if not value:
-        raise ValueError("raw_price is required for a known price")
-    normalized = value.lower()
-    if any(term in normalized for term in ("thỏa thuận", "thoả thuận", "liên hệ", "contact", "thương lượng")):
-        return None
-    amount = _parse_decimal(normalized)
-    if "tỷ" in normalized or "ty" in normalized:
-        amount *= Decimal("1000000000")
-    elif "triệu" in normalized or "tr" in normalized:
-        amount *= Decimal("1000000")
-    else:
-        amount *= Decimal("1000000")
-    return amount.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-
-
-def parse_price(value: str | None) -> ParsedPrice:
-    if not value:
-        return ParsedPrice(None, None, "contact")
-    normalized = value.lower().strip()
-    if any(term in normalized for term in ("thỏa thuận", "thoả thuận", "liên hệ", "contact", "thương lượng")):
-        return ParsedPrice(None, None, "contact")
-
-    is_usd = any(token in normalized for token in ("usd", "$", "đô la"))
-    basis = "per_m2" if any(token in normalized for token in ("/m2", "/m²", "m2")) else "total"
-    if is_usd:
-        return ParsedPrice(_parse_usd_number(normalized), "USD", "known", basis)
-    return ParsedPrice(parse_price_vnd(value), "VND", "known", basis)
-
 
 def _timestamp(value: str) -> datetime:
     parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -157,6 +104,11 @@ class RawEventCleanProcessor:
         connection: Connection[Any],
         exchange_rate_provider: ExchangeRateProvider | None = None,
     ) -> None:
+        if not connection.autocommit:
+            raise ValueError(
+                "RawEventCleanProcessor requires a connection with "
+                "autocommit=True"
+            )
         self._connection = connection
         self._exchange_rate_provider = exchange_rate_provider
 
@@ -179,12 +131,28 @@ class RawEventCleanProcessor:
             run_started_at = crawled_at
             listing_key = envelope["listing_key"]
             source = envelope["source"]
+
+            area_m2 = parse_area_m2(payload.get("raw_area"))
+            quality_flags = list(payload.get("quality_flags") or [])
+
             
             parsed_price = parse_price(payload.get("raw_price"))
+            transaction_type, rent_from_text = detect_transaction_type(
+                per_month=parsed_price.per_month,
+                title=payload.get("title"),
+                url=url,
+                page_url=payload.get("page_url"),
+            )
+            
+            if rent_from_text:
+                quality_flags.append("rent_inferred_from_text")
+            if transaction_type == "rent":
+                parsed_price, rent_flag = to_monthly_rent(parsed_price, area_m2)
+                if rent_flag:
+                    quality_flags.append(rent_flag)
             price_status = parsed_price.status
             amount = parsed_price.amount
             currency = parsed_price.currency
-            
             price_vnd = None
             if price_status == "known" and currency == "VND":
                 price_vnd = amount
@@ -199,15 +167,18 @@ class RawEventCleanProcessor:
                 )
                 price_vnd = (amount * fx_rate).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
                 
-            area_m2 = parse_area_m2(payload.get("raw_area"))
-            price_per_m2 = (
-                (price_vnd / area_m2).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-                if price_vnd is not None and area_m2
-                else None
-            )
+            if price_vnd is None or transaction_type != "sale":
+                price_per_m2 = None
+            elif parsed_price.basis == "per_m2":
+                price_per_m2 = price_vnd
+            elif area_m2:
+                price_per_m2 = (price_vnd / area_m2).quantize(
+                    Decimal("1"), rounding=ROUND_HALF_UP
+                )
+            else:
+                price_per_m2 = None
             
             description = payload.get("description")
-            quality_flags = list(payload.get("quality_flags") or [])
             contact_info = str(payload.get("contact_info")) if payload.get("contact_info") is not None else None
             # Pack mapped data into tuple structures aligned with SQL schemas
             evt_row = (envelope["raw_event_id"], run_started_at)
@@ -234,6 +205,7 @@ class RawEventCleanProcessor:
                 payload.get("raw_address"),
                 quality_flags,
                 PROCESSING_VERSION,
+                transaction_type,
             )
             
             lc_row = (listing_key, crawled_at)
@@ -244,7 +216,7 @@ class RawEventCleanProcessor:
                 "Rejecting raw event topic=%s partition=%s offset=%s: %s",
                 message.topic(), message.partition(), message.offset(), exc,
             )
-            raise TransientProcessingError("Failed to process raw event") from exc
+            raise 
 
     
     @staticmethod
@@ -399,7 +371,7 @@ class RawEventCleanProcessor:
                 rows.append(self._extract_and_transform(msg))
             stats = self._execute_db_batch(rows)
             logger.info("Successfully clean-inserted %d events into PostgreSQL.", len(rows))
-        except (OperationalError, IntegrityError) as db_exc:
+        except (OperationalError) as db_exc:
             raise TransientProcessingError(f"PostgreSQL is unavailable or failed to process batch: {db_exc}") from db_exc
         logger.info(
             "Processed %d events: stored=%d unchanged=%d stale=%d reactivated=%d",

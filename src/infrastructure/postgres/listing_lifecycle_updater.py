@@ -71,6 +71,7 @@ def apply_pending_runs(
     *,
     grace_seconds: int,
 ) -> int:
+    handled = 0
     while True:
         with connection.transaction():
             run = connection.execute(

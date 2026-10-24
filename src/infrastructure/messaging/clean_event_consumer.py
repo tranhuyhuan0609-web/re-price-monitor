@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def run_clean_event_consumer(*, max_messages: int | None = None) -> int:
     settings = load_settings()
     
-    with connect(settings.postgres_dsn) as connection:
+    with connect(settings.postgres_dsn, autocommit = True) as connection:
         processor = RawEventCleanProcessor(
             connection,
             exchange_rate_provider=PostgresExchangeRateProvider(connection),

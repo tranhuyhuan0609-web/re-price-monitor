@@ -48,8 +48,8 @@ services:
     entrypoint: [ "sh", "-c" ]
     command: |
        '
-       /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:19092 --topic realestate.prod.raw.v1 --partitions 4 --replication-factor 1
-       /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:19092 --topic realestate.prod.dlq.v1 --partitions 2 --replication-factor 1
+       /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:19092 --topic ${KAFKA_RAW_TOPIC:?KAFKA_RAW_TOPIC is required} --partitions 4 --replication-factor 1
+       /opt/kafka/bin/kafka-topics.sh --create --if-not-exists --bootstrap-server kafka:19092 --topic ${KAFKA_DLQ_TOPIC:?KAFKA_DLQ_TOPIC is required} --partitions 2 --replication-factor 1
        '
 
   kafka-ui:
@@ -127,6 +127,7 @@ services:
       - ./migration/postgres/create_crawler_config.sql:/docker-entrypoint-initdb.d/03-crawler-config.sql:ro
       - ./migration/postgres/upgrade_listing_lifecycle_v2.sql:/docker-entrypoint-initdb.d/04-listing-lifecycle-v2.sql:ro
       - ./migration/postgres/create_exchange_rates.sql:/docker-entrypoint-initdb.d/20-exchange-rates.sql:ro
+      - ./migration/postgres/create_listing_detail_cache.sql:/docker-entrypoint-initdb.d/05-listing-detail-cache.sql:ro
     healthcheck:
       # Tối ưu hóa lệnh kiểm tra trạng thái bằng pg_isready kết hợp tài khoản mặc định
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]

@@ -282,7 +282,7 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
     needs_detail_cache = bool(
         selector_dict.get("description")
         or selector_dict.get("contact_info")
-        or create_detail_extractor(config.detail_extractors, selector_dict).required_fields
+        or create_detail_extractor(config.detail_extractor, selector_dict).required_fields
     )
     detail_cache: PostgresListingDetailCache | None = None
     if needs_detail_cache:
