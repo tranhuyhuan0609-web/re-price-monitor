@@ -163,7 +163,7 @@ def parse_price(value: str | None) -> ParsedPrice:
         raise
 
     if amount <= 0:
-        raise ParsedPrice(None, None, "contact")
+        return ParsedPrice(None, None, "contact")
     if amount > MAX_VND:
         raise ValueError(f"implausible price: {value!r}")
 

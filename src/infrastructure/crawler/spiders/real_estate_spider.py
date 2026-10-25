@@ -32,8 +32,6 @@ class RealEstateSpider(scrapy.Spider):
     Flow:
         listing page -> parse cards -> optional detail request -> RawEvent
 
-    Requests do not opt into Playwright. The Scrapy handler configured by the
-    worker can therefore use the regular HTTP download path for these requests.
     """
 
     name = "real_estate"

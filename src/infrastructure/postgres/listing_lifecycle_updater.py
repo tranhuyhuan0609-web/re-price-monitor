@@ -9,15 +9,6 @@ from src.infrastructure.config.settings import load_settings
 logger = logging.getLogger(__name__)
 INACTIVE_AFTER_MISSES = 5
 
-
-def _like_prefix(prefix: str) -> str:
-    """Escape LIKE wildcards in a literal prefix and anchor it at the start."""
-    escaped = (
-        prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    )
-    return escaped + "%"
-
-
 def _apply_run(connection: Connection[Any], run: tuple) -> int:
     """Đếm một lần thiếu (missed run) cho mỗi tin đăng đang active của site mà không xuất hiện trong đợt crawl này."""
     crawl_run_id, site_id, status, started_at, finished_at = run
@@ -35,14 +26,14 @@ def _apply_run(connection: Connection[Any], run: tuple) -> int:
                             THEN %(finished_at)s ELSE NULL END,
             updated_at = now()
         WHERE status = 'active'
-          AND listing_key LIKE %(pattern)s
+          AND source = %(source)s
           AND last_seen_at < %(started_at)s
         RETURNING listing_key, status
         """,
         {
             "limit": INACTIVE_AFTER_MISSES,
             "finished_at": finished_at,
-            "pattern": _like_prefix(f"{source}:url:"),
+            "source": source,
             "started_at": started_at,
         },
     ).fetchall()

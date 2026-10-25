@@ -50,10 +50,10 @@ _INSERT_OBSERVATION_SQL = """
 
 _UPSERT_LIFECYCLE_SQL = """
     INSERT INTO listing_lifecycle (
-        listing_key, status, missing_count, last_seen_at, first_seen_at,
+        listing_key,source, status, missing_count, last_seen_at, first_seen_at,
         price_status, price_basis, currency, amount, price_vnd,
         price_changed_at
-    ) VALUES (%s, 'active', 0, %s, %s, %s, %s, %s, %s, %s, %s)
+    ) VALUES (%s,%s, 'active', 0, %s, %s, %s, %s, %s, %s, %s, %s)
     ON CONFLICT (listing_key) DO UPDATE SET
         status = 'active',
         missing_count = 0,
@@ -347,8 +347,9 @@ class RawEventCleanProcessor:
                     cur.executemany(
                         _UPSERT_LIFECYCLE_SQL,
                         [
-                            (
+                            (  
                                 key,
+                                key.split(":url:",1)[0],
                                 state.last_seen_at,
                                 state.first_seen_at,
                                 *state.signature,

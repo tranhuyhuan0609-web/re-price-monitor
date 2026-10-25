@@ -1,21 +1,27 @@
 from __future__ import annotations
+
 import json
 import os
 import subprocess
 import sys
+import threading
+from collections import deque
 from pathlib import Path
+
 from src.application.crawler.crawler_executor import (
     CrawlExecutionReport,
 )
 from src.domain.entities.crawler_config import CrawlerConfig
+
+_STDERR_TAIL_LINES = 100
 
 
 class ScrapyCrawlerExecutor:
     def __init__(
         self,
         *,
-        timeout_seconds: int = 1900,
-        closespider_timeout: int = 1800,
+        timeout_seconds: int = 3800,
+        closespider_timeout: int = 3600,
         worker_path: Path | None = None,
     ) -> None:
         if (
@@ -72,31 +78,74 @@ class ScrapyCrawlerExecutor:
             if path
         )
 
+        process = subprocess.Popen(
+            [sys.executable, str(self._worker_path)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=project_root,
+            env=environment,
+        )
+
+        stdout_chunks: list[str] = []
+        stderr_tail: deque[str] = deque(maxlen=_STDERR_TAIL_LINES)
+
+       
+        def read_stdout() -> None:
+            try:
+                for line in process.stdout:
+                    stdout_chunks.append(line)
+            except Exception as e:
+                sys.stderr.write(f"[Crawl Error] Đọc stdout thất bại: {e}\n")
+
+        
+        def forward_stderr() -> None:
+            try:
+                for line in process.stderr:
+                    stderr_tail.append(line)
+                    sys.stderr.write(f"[crawl {crawl_run_id[:8]}] {line}")
+                    sys.stderr.flush()
+            except Exception as e:
+                sys.stderr.write(f"[Crawl Error] Stream stderr thất bại: {e}\n")
+
+        readers = [
+            threading.Thread(target=read_stdout, daemon=True),
+            threading.Thread(target=forward_stderr, daemon=True),
+        ]
+
+        for reader in readers:
+            reader.start()
+
+
         try:
-            completed = subprocess.run(
-                [sys.executable, str(self._worker_path)],
-                input=json.dumps(payload),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=self._timeout_seconds,
-                cwd=project_root,
-                env=environment,
-                check=False,
-            )
+            process.stdin.write(json.dumps(payload))
+            process.stdin.close()
+        except BrokenPipeError:
+            pass
+
+
+        try:
+            returncode = process.wait(timeout=self._timeout_seconds)
         except subprocess.TimeoutExpired as exc:
+            process.kill()
+            process.wait()
             raise TimeoutError(
                 f"Scrapy worker timed out after {self._timeout_seconds}s"
             ) from exc
+        finally:
+            for reader in readers:
+                reader.join(timeout=5)
 
-        stdout = completed.stdout.strip()
+        stdout = "".join(stdout_chunks).strip()
 
-        if completed.returncode != 0:
+        if returncode != 0:
+            error_log_tail = "".join(stderr_tail)[-4000:]
             raise RuntimeError(
-                "Scrapy worker failed "
-                f"(exit_code={completed.returncode}); "
-                f"stderr={completed.stderr[-4000:]!r}"
+                f"Scrapy worker failed (exit_code={returncode}); "
+                f"stderr={error_log_tail!r}"
             )
 
         if not stdout:

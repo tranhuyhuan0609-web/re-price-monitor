@@ -101,7 +101,6 @@ def _build_scrapy_settings(
     *,
     closespider_timeout: int,
     publish_kafka: bool = True,
-    browser_headless: bool = True,
 ) -> dict[str, Any]:
     """Map domain crawler configuration to Scrapy runtime settings.
 
@@ -158,32 +157,18 @@ def _build_scrapy_settings(
         "COOKIES_ENABLED": True,
         "CLOSESPIDER_TIMEOUT": closespider_timeout,
         "ITEM_PIPELINES": ITEM_PIPELINES if publish_kafka else {},
-        "DOWNLOAD_HANDLERS": {
-            "http": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-            "https": "scrapy_playwright.handler.ScrapyPlaywrightDownloadHandler",
-        },
+        
         "TWISTED_REACTOR": (
             "twisted.internet.asyncioreactor.AsyncioSelectorReactor"
         ),
-        "PLAYWRIGHT_BROWSER_TYPE": "chromium",
-        "PLAYWRIGHT_LAUNCH_OPTIONS": {
-            "headless": browser_headless,
-            "args": ["--disable-blink-features=AutomationControlled"]
-        },
-        "PLAYWRIGHT_CONTEXTS": {
-            "default": {
-                "user_agent": selector_agent,
-                "locale": "vi-VN",
-                "timezone_id": "Asia/Ho_Chi_Minh",
-                "extra_http_headers": {
-                    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
-                },
-            },
+        "DEFAULT_REQUEST_HEADERS": {
+            "Accept-Language": 
+            "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7"
         },
         "TELNETCONSOLE_ENABLED": False,
         "LOG_LEVEL": "INFO",
     }
-
+    
     bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS")
     raw_topic = os.environ.get("KAFKA_RAW_TOPIC")
     if bootstrap_servers:
@@ -254,7 +239,6 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
         DEFAULT_CLOSESPIDER_TIMEOUT,
     )
     publish_kafka = _optional_bool(payload, "publish_kafka", True)
-    browser_headless = _optional_bool(payload, "browser_headless", True)
 
     try:
         config_data = json.loads(config_json)
@@ -271,7 +255,6 @@ def run_worker(payload: dict[str, Any]) -> dict[str, Any]:
             config,
             closespider_timeout=closespider_timeout,
             publish_kafka=publish_kafka,
-            browser_headless=browser_headless,
         ),
         priority="project",
     )

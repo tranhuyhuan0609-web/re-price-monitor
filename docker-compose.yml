@@ -129,6 +129,7 @@ services:
       - ./migration/postgres/create_exchange_rates.sql:/docker-entrypoint-initdb.d/20-exchange-rates.sql:ro
       - ./migration/postgres/create_listing_detail_cache.sql:/docker-entrypoint-initdb.d/05-listing-detail-cache.sql:ro
       - ./migration/postgres/create_observation_indexes.sql:/docker-entrypoint-initdb.d/06-observation-indexes.sql:ro
+      - ./migration/postgres/add_lifecycle_source_v3.sql:/docker-entrypoint-initdb.d/07-lifecycle-source-v3.sql:ro
     healthcheck:
       # Tối ưu hóa lệnh kiểm tra trạng thái bằng pg_isready kết hợp tài khoản mặc định
       test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]

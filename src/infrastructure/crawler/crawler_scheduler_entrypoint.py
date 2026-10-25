@@ -45,7 +45,7 @@ async def main() -> None:
 
         runner = CrawlerRunner(
             ScrapyCrawlerExecutor(
-                timeout_seconds=1900,
+                timeout_seconds=3800,
                 closespider_timeout=3600,
             ),
             recorder=thread_safe_recorder, 
