@@ -51,6 +51,9 @@ _PER_YEAR_RE = re.compile(
     _PERIOD_PREFIX + r"(?:năm|nam|year|yr)" + _NOT_LETTER
 )
 
+_RANGE_SEPARATOR_RE = re.compile(r"^\s*(?:-|–|—|~|đến|đên|tới|toi|to)\s*$")
+_SCIENTIFIC_RE = re.compile(r"(?<![^\W\d_])\d+(?:[.,]\d+)?e[+-]?\d+")
+
 
 @dataclass(frozen=True, slots=True)
 class ParsedPrice:
@@ -109,12 +112,17 @@ def _sum_tokens(
             raise ValueError(f"unexpected number in price: {number!r}")
     return total
 
-
 def _tokenize(text: str) -> list[tuple[str, str | None]]:
-    tokens = [(m.group("num"), m.group("unit")) for m in _TOKEN_RE.finditer(text)]
-    if not tokens:
+    matches = list(_TOKEN_RE.finditer(text))
+    if not matches:
         raise ValueError(f"cannot parse numeric value: {text!r}")
-    return tokens
+    if len(matches) >= 2:
+        first, second = matches[0], matches[1]
+        gap = text[first.end():second.start()]
+        if _RANGE_SEPARATOR_RE.match(gap):
+            return [(first.group("num"), first.group("unit") or second.group("unit"))]
+
+    return [(m.group("num"), m.group("unit")) for m in matches]
 
 
 def parse_price(value: str | None) -> ParsedPrice:
@@ -125,6 +133,9 @@ def parse_price(value: str | None) -> ParsedPrice:
     text = _normalize(value)
     if any(term in text for term in _CONTACT_TERMS):
         return ParsedPrice(None, None, "contact")
+
+    if _SCIENTIFIC_RE.search(text):
+            return ParsedPrice(None, None, "contact")
 
     if _PER_YEAR_RE.search(text):
         raise ValueError(f"unsupported price period (per year): {value!r}")
@@ -152,7 +163,7 @@ def parse_price(value: str | None) -> ParsedPrice:
         raise
 
     if amount <= 0:
-        raise ValueError(f"price must be positive: {value!r}")
+        raise ParsedPrice(None, None, "contact")
     if amount > MAX_VND:
         raise ValueError(f"implausible price: {value!r}")
 
@@ -180,6 +191,9 @@ def parse_price_vnd(value: str | None) -> Decimal | None:
 def parse_area_m2(value: str | None) -> Decimal | None:
    
     if not value or not value.strip():
+        return None
+    text = _normalize(value)
+    if _SCIENTIFIC_RE.search(text):
         return None
     match = re.search(r"\d+(?:[.,]\d+)*", _normalize(value))
     if match is None:

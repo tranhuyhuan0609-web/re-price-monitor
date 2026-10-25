@@ -1,6 +1,7 @@
 from __future__ import annotations
 from src.domain.entities.base import NonBlank, StrictBaseModel
 import re
+from datetime import datetime, time, timedelta, timezone
 from typing import Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -14,6 +15,7 @@ from pydantic import (
 )
 
 SITE_ID_RE = re.compile(r"[a-z0-9_-]+")
+SCHEDULE_TIME_RE = re.compile(r"(?P<h>[01]?\d|2[0-3]):(?P<m>[0-5]\d)")
 HOST_LABEL_RE = re.compile(
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
 )
@@ -25,11 +27,6 @@ def normalize_host(host: str | None) -> str:
         raise ValueError("URL must have a hostname.")
 
     return host.lower().rstrip(".")
-
-class StrictBaseModel(BaseModel):
-    """Base model that rejects undeclared configuration fields."""
-
-    model_config = ConfigDict(extra="forbid")
 
 class Selectors(StrictBaseModel):
     """CSS selectors consumed by ListingParser."""
@@ -219,6 +216,14 @@ class CrawlerConfig(StrictBaseModel):
         ge=60,
         description="Minimum interval between scheduled crawl runs.",
     )
+    schedule_times: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Fixed daily schedule times formatted as 'HH:MM' based on source_timezone, "
+            "e.g., ['08:00', '12:00']. If provided, this completely overrides "
+            "schedule_interval_seconds."
+        ),
+    )
 
     base_url: HttpUrl
     start_urls: list[HttpUrl] = Field(min_length=1)
@@ -248,6 +253,22 @@ class CrawlerConfig(StrictBaseModel):
             )
 
         return value
+    @field_validator("schedule_times")
+    @classmethod
+    def validate_schedule_times(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            match = SCHEDULE_TIME_RE.fullmatch(value.strip())
+            if match is None:
+                raise ValueError(
+                    f"Invalid schedule time {value!r}; use 'HH:MM' (00:00-23:59)."
+                )
+            normalized.append(f"{int(match['h']):02d}:{match['m']}")
+
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("Duplicate schedule_times are not allowed.")
+
+        return sorted(normalized)
 
     @field_validator("name")
     @classmethod
@@ -349,5 +370,22 @@ class CrawlerConfig(StrictBaseModel):
             )
 
         return self
+    def latest_scheduled_slot(self, now: datetime) -> datetime | None:
+        """The most recent scheduled slot up to or including ``now`` (aware, UTC)."""
+        if not self.schedule_times:
+            return None
+        tz = self.source_zoneinfo()
+        local_now = now.astimezone(tz)
+        slots = []
+        for day_offset in (0, -1):
+            day = (local_now + timedelta(days=day_offset)).date()
+            for text in self.schedule_times:
+                hour, minute = map(int, text.split(":"))
+                slots.append(
+                    datetime.combine(day, time(hour, minute), tzinfo=tz)
+                )
+        past = [s for s in slots if s <= local_now]
+        return max(past).astimezone(timezone.utc)
+
     def source_zoneinfo(self) -> ZoneInfo:
         return ZoneInfo(self.source_timezone)

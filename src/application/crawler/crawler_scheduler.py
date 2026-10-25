@@ -34,6 +34,7 @@ class CrawlerScheduler:
         self._in_flight: set[str] = set()
         self._last_started: dict[str, datetime] = {}
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._started_at = self._now()
 
     async def run_once(self) -> list[CrawlRunResult]:
         configs = await self._config_repository.get_enabled_configs()
@@ -65,12 +66,15 @@ class CrawlerScheduler:
 
     def _is_due(self, config: CrawlerConfig) -> bool:
         last_started = self._last_started.get(config.site_id)
+        if config.schedule_times:
+            slot = config.latest_scheduled_slot(self._now())
+            reference = last_started or self._started_at
+            return slot is not None and slot > reference
         if last_started is None:
             return True
         return self._now() >= last_started + timedelta(
             seconds=config.schedule_interval_seconds
         )
-
     async def run_forever(self) -> None:
         while True:
             try:
