@@ -1,0 +1,14 @@
+{
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 5000,
+            "server": "localhost",
+            "port": 15432,
+            "driver": "PostgreSQL",
+            "name": "huyhuan",
+            "database": "realestate_prod",
+            "username": "huyhuan"
+        }
+    ]
+}

@@ -2,15 +2,12 @@ from __future__ import annotations
 from src.infrastructure.crawler.detail_extractors.factory import create_detail_extractor
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import replace
-import json
-from html import unescape
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urldefrag, urlsplit
 import scrapy
 from scrapy import Request
 from scrapy.http import Response, TextResponse
-from scrapy.selector import Selector
 from scrapy.utils.defer import maybe_deferred_to_future
 from twisted.internet.threads import deferToThread
 from src.infrastructure.database.postgres_listing_detail_cache import (

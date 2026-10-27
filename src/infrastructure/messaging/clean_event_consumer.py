@@ -34,7 +34,6 @@ def run_clean_event_consumer(*, max_messages: int | None = None) -> int:
             return consumer.run(max_messages=max_messages)
         finally:
             consumer.close()
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     run_clean_event_consumer()

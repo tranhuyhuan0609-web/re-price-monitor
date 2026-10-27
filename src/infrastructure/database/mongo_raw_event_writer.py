@@ -7,7 +7,7 @@ from pymongo.errors import PyMongoError
 from src.infrastructure.messaging.raw_event_envelope import (
     deserialize_raw_event_envelope,
 )
-from pymongo.errors import ConnectionFailure, ExecutionTimeout,PyMongoError
+from pymongo.errors import ConnectionFailure, ExecutionTimeout
 from src.application.exceptions.transient_processing_error import TransientProcessingError
 logger = logging.getLogger(__name__)
 class MongoRawEventWriter:
@@ -28,8 +28,6 @@ class MongoRawEventWriter:
 
         self._client = client or MongoClient(mongo_uri, maxPoolSize=5, minPoolSize=1)
         self._collection: Collection = self._client[database.strip()][collection.strip()]
-        
-        # Ensure optimal query and deduplication performance
         self._collection.create_index("crawl_run_id")
         self._collection.create_index("listing_key")
 
@@ -42,16 +40,12 @@ class MongoRawEventWriter:
 
         for message in messages:
             if message.value() is None:
-                # Log a warning for empty payload rows but continue batch loop processing
                 logger.warning(f"Received empty Kafka message at partition={message.partition()} offset={message.offset()}")
                 continue
 
             try:
-                # Deserialize raw Kafka bytes using the pre-existing schema structure
                 envelope = deserialize_raw_event_envelope(message.value())
                 raw_event_id = envelope["raw_event_id"]
-
-                # Append a ReplaceOne operation with upsert=True to maintain idempotency via _id
                 bulk_operations.append(
                     ReplaceOne(
                         filter={"_id": raw_event_id},
@@ -68,7 +62,6 @@ class MongoRawEventWriter:
                     )
                 )
             except Exception as e:
-                # Propagating errors outward allows the consumer layer fallback logic to route to DLQ safely
                 logger.error(f"Error parsing raw event envelope context: {e}")
                 raise
 
@@ -76,14 +69,11 @@ class MongoRawEventWriter:
             return
 
         try:
-            # ordered=False executes operations in parallel for high throughput performance
             self._collection.bulk_write(bulk_operations, ordered=False)
             logger.info(f"Successfully bulk-upserted {len(bulk_operations)} raw events into MongoDB.")
         except (ConnectionFailure, ExecutionTimeout) as conn_exc:
-            # Raise a transient processing error to signal the consumer to retry the batch later
             raise TransientProcessingError(f"MongoDB is unavailable: {conn_exc}") from conn_exc
         except PyMongoError as exc:
-                    # Raise runtime exception to halt immediate offset commits upon cluster dropouts
                     raise RuntimeError(f"Failed to execute batch bulk_write on MongoDB: {exc}") from exc
     def close(self) -> None:
         """Close the MongoDB connection pool gracefully."""

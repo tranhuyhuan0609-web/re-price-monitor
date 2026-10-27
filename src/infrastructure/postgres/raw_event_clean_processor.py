@@ -1,8 +1,7 @@
 from __future__ import annotations
-from psycopg import IntegrityError, OperationalError
+from psycopg import OperationalError
 from src.application.exceptions.transient_processing_error import TransientProcessingError   
 import logging
-import re
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any

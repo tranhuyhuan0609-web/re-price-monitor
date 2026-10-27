@@ -51,26 +51,3 @@ class PostgresExchangeRateProvider:
                 f"at or before {at.isoformat()}"
             )
         return Decimal(str(row[0])), row[1].astimezone(timezone.utc)
-
-
-class FixedExchangeRateProvider:
-    """Deterministic provider for tests and controlled local runs."""
-
-    def __init__(self, rate: Decimal, rate_at: datetime) -> None:
-        if rate <= 0:
-            raise ValueError("rate must be positive")
-        self._rate = rate
-        self._rate_at = rate_at.astimezone(timezone.utc)
-
-    def get_rate(
-        self,
-        *,
-        base_currency: str,
-        quote_currency: str,
-        at: datetime,
-    ) -> tuple[Decimal, datetime]:
-        if (base_currency, quote_currency) != USD_TO_VND:
-            raise ValueError(
-                f"unsupported exchange pair: {base_currency}/{quote_currency}"
-            )
-        return self._rate, self._rate_at

@@ -27,9 +27,10 @@ def run_dlq_event_consumer(*, max_messages: int | None = None) -> int:
         logger.info("Starting DLQ to MongoDB consumer in BATCH mode...")
         return consumer.run(max_messages=max_messages)
     finally:
-        consumer.close()
-        writer.close()
-
+        try:
+            consumer.close()
+        finally:
+            writer.close()
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     run_dlq_event_consumer()

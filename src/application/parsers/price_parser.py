@@ -177,17 +177,6 @@ def parse_price(value: str | None) -> ParsedPrice:
         "VND", "known", basis, per_month,
     )
 
-
-def parse_price_vnd(value: str | None) -> Decimal | None:
-   
-    parsed = parse_price(value)
-    if parsed.status != "known":
-        return None
-    if parsed.currency != "VND":
-        raise ValueError(f"price is not in VND: {value!r}")
-    return parsed.amount
-
-
 def parse_area_m2(value: str | None) -> Decimal | None:
    
     if not value or not value.strip():
@@ -259,5 +248,4 @@ def to_monthly_rent(
         if price.currency == "VND" and total > MAX_VND:
             raise ValueError("implausible monthly rent")
         return replace(price, amount=total, basis="per_month"), None
-
     return replace(price, basis="per_month"), None

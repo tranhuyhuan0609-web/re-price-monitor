@@ -27,9 +27,3 @@ async def run_scheduler(
     )
     await scheduler.run_forever()
 
-
-def run_scheduler_until_cancelled(**kwargs) -> None:
-    try:
-        asyncio.run(run_scheduler(**kwargs))
-    except KeyboardInterrupt:
-        return

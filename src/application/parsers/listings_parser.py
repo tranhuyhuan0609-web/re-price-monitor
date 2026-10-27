@@ -311,6 +311,3 @@ class ListingParser:
             )
 
         return results, stats
-
-    def parse(self, response: TextResponse) -> list[ParsedListing]:
-        return self.parse_with_stats(response)[0]
